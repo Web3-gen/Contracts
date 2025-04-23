@@ -7,12 +7,10 @@ import "../libraries/errors.sol";
 import "./Tokens.sol";
 import {OrganizationContract} from "./OrganizationContract.sol";
 
-
 /**
  * @title OrganizationFactory
  * @dev Factory contract to create and manage organizations
  */
-
 contract OrganizationFactory is TokenRegistry {
     address public owner;
     mapping(address => address) public organizationContracts;
