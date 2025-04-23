@@ -1,28 +1,22 @@
 //SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity ^0.8.28;
 
 library Structs {
     struct Organization {
-        uint256 organizationId;
+        bytes32 organizationId;
         string name;
         string description;
-        string website;
         address owner;
         uint256 createdAt;
         uint256 updatedAt;
     }
 
     struct Recipient {
-        uint256 recipientId;
-        uint256 organizationId;
+        bytes32 recipientId;
+        bytes32 organizationId;
         string name;
-        string email;
-        string phone;
-        string addressLine1;
-        string addressLine2;
-        string city;
-        string state;
-        string country;
+        uint256 salaryAmount;
+        uint256 advanceCollected;
         address walletAddress;
         uint256 createdAt;
         uint256 updatedAt;
@@ -33,7 +27,6 @@ library Structs {
         address tokenAddress;
         uint256 amount;
         uint256 timestamp;
-        string description;
     }
 
     struct AdvanceRequest {
