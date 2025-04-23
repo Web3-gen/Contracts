@@ -2,7 +2,7 @@
 pragma solidity 0.8.28;
 
 import "../interfaces/IERC20.sol";
-import "../libraries/Structs.sol";
+import "../libraries/structs.sol";
 import "../libraries/errors.sol";
 import "./Tokens.sol";
 import {OrganizationContract} from "./OrganizationContract.sol";
@@ -12,17 +12,23 @@ import {OrganizationContract} from "./OrganizationContract.sol";
  * @dev Factory contract to create and manage organizations
  */
 contract OrganizationFactory is TokenRegistry {
-    address public owner;
+    address public feeCollector;
+
     mapping(address => address) public organizationContracts;
+    mapping(address => Structs.Organization) public organizations;
 
-    event OrganizationCreated(address indexed organizationAddress, address indexed owner, string name);
+    event OrganizationCreated(
+        address indexed organizationAddress, 
+        address indexed owner, 
+        string name,
+        string description,
+        uint256 createdAt
+    );
 
-    function _onlyOwner() internal view {
-        require(msg.sender == owner, "Not authorized");
-    }
 
-    constructor() {
+    constructor(address _feeCollector) {
         owner = msg.sender;
+        feeCollector = _feeCollector;
     }
 
     /**
@@ -32,19 +38,50 @@ contract OrganizationFactory is TokenRegistry {
      * @return Address of the newly created organization contract
      */
     function createOrganization(string memory _name, string memory _description) public returns (address) {
-        require(bytes(_name).length > 0, CustomErrors.NameRequired());
-        require(bytes(_description).length > 0, CustomErrors.DescriptionRequired());
-        require(organizationContracts[msg.sender] == address(0), "Organization already exists for this address");
+        if (bytes(_name).length == 0) revert CustomErrors.NameRequired();
+        if (bytes(_description).length == 0) revert CustomErrors.DescriptionRequired();
+        if (organizationContracts[msg.sender] != address(0)) revert CustomErrors.OrganizationAlreadyExists();
 
-        // Create new organization contract
-        OrganizationContract newOrg = new OrganizationContract(msg.sender, _name, _description);
+        OrganizationContract newOrganization = new OrganizationContract(
+            msg.sender, 
+            address(this), 
+            feeCollector, 
+            _name, 
+            _description
+        );
+        address orgAddress = address(newOrganization);
+        organizationContracts[msg.sender] = orgAddress;
 
-        // Store the organization contract address
-        organizationContracts[msg.sender] = address(newOrg);
+        // Store organization details in the struct
+        bytes32 orgId = bytes32(keccak256(abi.encodePacked(msg.sender, block.timestamp)));
+        organizations[msg.sender] = Structs.Organization({
+            organizationId: orgId,
+            name: _name,
+            description: _description,
+            owner: msg.sender,
+            createdAt: block.timestamp,
+            updatedAt: block.timestamp
+        });
 
-        emit OrganizationCreated(address(newOrg), msg.sender, _name);
+        emit OrganizationCreated(
+            orgAddress, 
+            msg.sender, 
+            _name,
+            _description,
+            block.timestamp
+        );
 
-        return address(newOrg);
+        return orgAddress;
+    }
+
+    /**
+     * @dev Gets organization details
+     * @param _orgOwner Address of the organization owner
+     * @return Organization details
+     */
+    function getOrganizationDetails(address _orgOwner) public view returns (Structs.Organization memory) {
+        if (organizations[_orgOwner].organizationId == bytes32(0)) revert CustomErrors.OrganizationNotFound();
+        return organizations[_orgOwner];
     }
 
     /**
@@ -63,7 +100,7 @@ contract OrganizationFactory is TokenRegistry {
      */
     function removeToken(address _tokenAddress) public override {
         _onlyOwner();
-        require(_tokenAddress != address(0), CustomErrors.InvalidToken());
+        if (_tokenAddress == address(0)) revert CustomErrors.InvalidToken();
         super.removeToken(_tokenAddress);
     }
 
@@ -74,5 +111,33 @@ contract OrganizationFactory is TokenRegistry {
      */
     function getOrganizationContract(address _orgOwner) public view returns (address) {
         return organizationContracts[_orgOwner];
+    }
+
+    /**
+     * @dev Updates the transaction fee for an organization
+     * @param _orgOwner Address of the organization owner
+     * @param _newFee New fee in basis points (e.g., 50 = 0.5%)
+     */
+    function updateOrganizationTransactionFee(address _orgOwner, uint256 _newFee) public {
+        _onlyOwner();
+        address orgAddress = organizationContracts[_orgOwner];
+        if (orgAddress == address(0)) revert CustomErrors.OrganizationNotFound();
+        
+        OrganizationContract org = OrganizationContract(orgAddress);
+        org.setTransactionFee(_newFee);
+    }
+
+    /**
+     * @dev Updates the fee collector for an organization
+     * @param _orgOwner Address of the organization owner
+     * @param _newCollector New fee collector address
+     */
+    function updateOrganizationFeeCollector(address _orgOwner, address _newCollector) public {
+        _onlyOwner();
+        address orgAddress = organizationContracts[_orgOwner];
+        if (orgAddress == address(0)) revert CustomErrors.OrganizationNotFound();
+        
+        OrganizationContract org = OrganizationContract(orgAddress);
+        org.setFeeCollector(_newCollector);
     }
 }
