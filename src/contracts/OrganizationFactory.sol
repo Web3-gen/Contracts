@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.28;
 
 import "../interfaces/IERC20.sol";
 import "../libraries/structs.sol";
@@ -12,17 +12,23 @@ import {OrganizationContract} from "./OrganizationContract.sol";
  * @dev Factory contract to create and manage organizations
  */
 contract OrganizationFactory is TokenRegistry {
-    address public owner;
+    address public feeCollector;
+
     mapping(address => address) public organizationContracts;
+    mapping(address => Structs.Organization) public organizations;
 
-    event OrganizationCreated(address indexed organizationAddress, address indexed owner, string name);
+    event OrganizationCreated(
+        address indexed organizationAddress, 
+        address indexed owner, 
+        string name,
+        string description,
+        uint256 createdAt
+    );
 
-    function _onlyOwner() internal view {
-        require(msg.sender == owner, "Not authorized");
-    }
 
-    constructor() {
+    constructor(address _feeCollector) {
         owner = msg.sender;
+        feeCollector = _feeCollector;
     }
 
     /**
@@ -36,12 +42,46 @@ contract OrganizationFactory is TokenRegistry {
         if (bytes(_description).length == 0) revert CustomErrors.DescriptionRequired();
         if (organizationContracts[msg.sender] != address(0)) revert CustomErrors.OrganizationAlreadyExists();
 
-        OrganizationContract newOrganization = new OrganizationContract(msg.sender, _name, _description);
-        organizationContracts[msg.sender] = address(newOrganization);
+        OrganizationContract newOrganization = new OrganizationContract(
+            msg.sender, 
+            address(this), 
+            feeCollector, 
+            _name, 
+            _description
+        );
+        address orgAddress = address(newOrganization);
+        organizationContracts[msg.sender] = orgAddress;
 
-        emit OrganizationCreated(address(newOrganization), msg.sender, _name);
+        // Store organization details in the struct
+        bytes32 orgId = bytes32(keccak256(abi.encodePacked(msg.sender, block.timestamp)));
+        organizations[msg.sender] = Structs.Organization({
+            organizationId: orgId,
+            name: _name,
+            description: _description,
+            owner: msg.sender,
+            createdAt: block.timestamp,
+            updatedAt: block.timestamp
+        });
 
-        return address(newOrganization);
+        emit OrganizationCreated(
+            orgAddress, 
+            msg.sender, 
+            _name,
+            _description,
+            block.timestamp
+        );
+
+        return orgAddress;
+    }
+
+    /**
+     * @dev Gets organization details
+     * @param _orgOwner Address of the organization owner
+     * @return Organization details
+     */
+    function getOrganizationDetails(address _orgOwner) public view returns (Structs.Organization memory) {
+        if (organizations[_orgOwner].organizationId == bytes32(0)) revert CustomErrors.OrganizationNotFound();
+        return organizations[_orgOwner];
     }
 
     /**
@@ -71,5 +111,33 @@ contract OrganizationFactory is TokenRegistry {
      */
     function getOrganizationContract(address _orgOwner) public view returns (address) {
         return organizationContracts[_orgOwner];
+    }
+
+    /**
+     * @dev Updates the transaction fee for an organization
+     * @param _orgOwner Address of the organization owner
+     * @param _newFee New fee in basis points (e.g., 50 = 0.5%)
+     */
+    function updateOrganizationTransactionFee(address _orgOwner, uint256 _newFee) public {
+        _onlyOwner();
+        address orgAddress = organizationContracts[_orgOwner];
+        if (orgAddress == address(0)) revert CustomErrors.OrganizationNotFound();
+        
+        OrganizationContract org = OrganizationContract(orgAddress);
+        org.setTransactionFee(_newFee);
+    }
+
+    /**
+     * @dev Updates the fee collector for an organization
+     * @param _orgOwner Address of the organization owner
+     * @param _newCollector New fee collector address
+     */
+    function updateOrganizationFeeCollector(address _orgOwner, address _newCollector) public {
+        _onlyOwner();
+        address orgAddress = organizationContracts[_orgOwner];
+        if (orgAddress == address(0)) revert CustomErrors.OrganizationNotFound();
+        
+        OrganizationContract org = OrganizationContract(orgAddress);
+        org.setFeeCollector(_newCollector);
     }
 }

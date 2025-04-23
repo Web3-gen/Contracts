@@ -1,16 +1,25 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.28;
 
 /**
  * @title TokenRegistry
  * @dev Manages the registry of supported tokens for payments
  */
 contract TokenRegistry {
+    address public owner;
     mapping(address => string) public supportedTokens;
     uint256 public supportedTokensCount;
 
     event TokenAdded(address indexed tokenAddress, string name);
     event TokenRemoved(address indexed tokenAddress);
+
+    function _onlyOwner() internal view {
+        require(msg.sender == owner, "Not authorized");
+    }
+
+    constructor() {
+        owner = msg.sender;
+    }
 
     /**
      * @dev Adds a new token to the supported tokens list
@@ -18,6 +27,7 @@ contract TokenRegistry {
      * @param _tokenAddress Address of the token contract
      */
     function addToken(string memory _tokenName, address _tokenAddress) public virtual {
+        _onlyOwner();
         require(bytes(_tokenName).length > 0, "Token name is required");
         require(_tokenAddress != address(0), "Invalid token address");
         require(bytes(supportedTokens[_tokenAddress]).length == 0, "Token already exists");
@@ -43,6 +53,7 @@ contract TokenRegistry {
      * @param _tokenAddress Address of the token to remove
      */
     function removeToken(address _tokenAddress) public virtual {
+        _onlyOwner();
         require(_tokenAddress != address(0), "Invalid token address");
         require(bytes(supportedTokens[_tokenAddress]).length > 0, "Token does not exist");
 

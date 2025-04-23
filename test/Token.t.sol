@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.28;
 
 import "forge-std/Test.sol";
 import "../src/contracts/Tokens.sol";
@@ -18,7 +18,7 @@ contract TokenTest is Test {
         tokenRegistry = new TokenRegistry();
     }
 
-    function testInitialState() public {
+    function testInitialState() public view {
         assertEq(tokenRegistry.supportedTokensCount(), 0, "Initial supported tokens count should be 0");
     }
 
