@@ -10,16 +10,14 @@ library CustomErrors {
     error RecipientAlreadyExists();
     error NameRequired();
     error DescriptionRequired();
-    error WebsiteRequired();
-    error EmailRequired();
-    error PhoneRequired();
-    error AddressLine1Required();
-    error CityRequired();
-    error StateRequired();
-    error CountryRequired();
     error OrganizationNotFound();
     error RecipientNotFound();
     error UnauthorizedAccess();
     error InvalidInput();
     error OperationFailed();
+    error InvalidAmount();
+    error TokenNotSupported();
+    error InvalidAllowance();
+    error TransferFailed();
+    error AlreadyApproved();
 }
