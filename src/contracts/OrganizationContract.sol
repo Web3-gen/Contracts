@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.19;
 
 import "../interfaces/IERC20.sol";
 import "../libraries/structs.sol";
@@ -70,7 +70,7 @@ contract OrganizationContract {
      */
     function setFeeCollector(address _collector) external {
         _onlyOwner();
-        require(_collector != address(0), CustomErrors.InvalidAddress());
+        if (_collector == address(0)) revert CustomErrors.InvalidAddress();
         feeCollector = _collector;
     }
 
@@ -82,9 +82,9 @@ contract OrganizationContract {
      */
     function createRecipient(address _address, string memory _name, uint256 _salaryAmount) public returns (bytes32) {
         _onlyOwner();
-        require(bytes(_name).length > 0, CustomErrors.NameRequired());
-        require(_address != address(0), CustomErrors.InvalidAddress());
-        require(recipients[_address].recipientId == 0, CustomErrors.RecipientAlreadyExists());
+        if (bytes(_name).length == 0) revert CustomErrors.NameRequired();
+        if (_address == address(0)) revert CustomErrors.InvalidAddress();
+        if (recipients[_address].recipientId != 0) revert CustomErrors.RecipientAlreadyExists();
 
         bytes32 recipientId = bytes32(keccak256(abi.encodePacked(_address, block.timestamp)));
 
@@ -118,8 +118,8 @@ contract OrganizationContract {
         public
     {
         _onlyOwner();
-        require(_addresses.length == _names.length, CustomErrors.InvalidInput());
-        require(_addresses.length == _salaries.length, CustomErrors.InvalidInput());
+        if (_addresses.length != _names.length) revert CustomErrors.InvalidInput();
+        if (_addresses.length != _salaries.length) revert CustomErrors.InvalidInput();
 
         for (uint256 i = 0; i < _addresses.length; i++) {
             createRecipient(_addresses[i], _names[i], _salaries[i]);
@@ -135,11 +135,11 @@ contract OrganizationContract {
      */
     function disburseToken(address _tokenAddress, address _recipient, uint256 _amount) public returns (bool) {
         _onlyOwner();
-        require(_tokenAddress != address(0), CustomErrors.InvalidAddress());
-        require(_recipient != address(0), CustomErrors.InvalidAddress());
-        require(_amount > 0, CustomErrors.InvalidAmount());
-        require(isTokenSupported(_tokenAddress), CustomErrors.TokenNotSupported());
-        require(recipients[_recipient].recipientId != 0, CustomErrors.RecipientNotFound());
+        if (_tokenAddress == address(0)) revert CustomErrors.InvalidAddress();
+        if (_recipient == address(0)) revert CustomErrors.InvalidAddress();
+        if (_amount == 0) revert CustomErrors.InvalidAmount();
+        if (!isTokenSupported(_tokenAddress)) revert CustomErrors.TokenNotSupported();
+        if (recipients[_recipient].recipientId == 0) revert CustomErrors.RecipientNotFound();
 
         uint256 fee = (_amount * transactionFee) / 10000;
         uint256 amountAfterFee = _amount + fee;
@@ -155,21 +155,25 @@ contract OrganizationContract {
 
         IERC20 token = IERC20(_tokenAddress);
 
-        require(token.balanceOf(msg.sender) >= amountAfterFee, CustomErrors.InvalidAmount());
-        require(token.allowance(msg.sender, address(this)) >= amountAfterFee, CustomErrors.InvalidAllowance());
+        if (token.balanceOf(msg.sender) < amountAfterFee) revert CustomErrors.InvalidAmount();
+        if (token.allowance(msg.sender, address(this)) < amountAfterFee) revert CustomErrors.InvalidAllowance();
 
         if (recipients[_recipient].advanceCollected > 0) {
-            require(
-                token.transferFrom(msg.sender, _recipient, _amount - recipients[_recipient].advanceCollected),
-                CustomErrors.TransferFailed()
-            );
+            if (!token.transferFrom(msg.sender, _recipient, _amount - recipients[_recipient].advanceCollected)) {
+                revert CustomErrors.TransferFailed();
+            }
+            // Mark advance as repaid
+            advanceRequests[_recipient].repaid = true;
         } else {
-            require(token.transferFrom(msg.sender, _recipient, _amount), CustomErrors.TransferFailed());
+            if (!token.transferFrom(msg.sender, _recipient, _amount)) {
+                revert CustomErrors.TransferFailed();
+            }
         }
-        // require(token.transferFrom(msg.sender, _recipient, _amount - ), CustomErrors.TransferFailed());
 
         if (fee > 0) {
-            require(token.transferFrom(msg.sender, feeCollector, fee), CustomErrors.TransferFailed());
+            if (!token.transferFrom(msg.sender, feeCollector, fee)) {
+                revert CustomErrors.TransferFailed();
+            }
         }
 
         recipients[_recipient].advanceCollected = 0;
@@ -190,29 +194,29 @@ contract OrganizationContract {
         returns (bool)
     {
         _onlyOwner();
-        require(_recipients.length == _amounts.length, CustomErrors.InvalidInput());
+        if (_recipients.length != _amounts.length) revert CustomErrors.InvalidInput();
 
         uint256 totalAmount = 0;
 
         for (uint256 i = 0; i < _recipients.length; i++) {
             if (recipients[_recipients[i]].advanceCollected > 0) {
-                require(_recipients[i] != address(0), CustomErrors.InvalidAddress());
-                require(isTokenSupported(_tokenAddress), CustomErrors.TokenNotSupported());
-                require(_amounts[i] - recipients[_recipients[i]].advanceCollected > 0, CustomErrors.InvalidAmount());
+                if (_recipients[i] == address(0)) revert CustomErrors.InvalidAddress();
+                if (!isTokenSupported(_tokenAddress)) revert CustomErrors.TokenNotSupported();
+                if (_amounts[i] - recipients[_recipients[i]].advanceCollected == 0) revert CustomErrors.InvalidAmount();
                 totalAmount += _amounts[i] - recipients[_recipients[i]].advanceCollected;
                 continue;
             } else {
-                require(_amounts[i] > 0, CustomErrors.InvalidAmount());
+                if (_amounts[i] == 0) revert CustomErrors.InvalidAmount();
             }
 
             totalAmount += _amounts[i];
         }
 
         IERC20 token = IERC20(_tokenAddress);
-        require(token.balanceOf(msg.sender) >= totalAmount, "Insufficient token balance");
-        require(token.allowance(msg.sender, address(this)) >= totalAmount, CustomErrors.InvalidAllowance());
-        require(token.transferFrom(msg.sender, address(this), totalAmount), "Token transfer to contract failed");
-        require(token.balanceOf(address(this)) >= totalAmount, "Token transfer to contract failed");
+        if (token.balanceOf(msg.sender) < totalAmount) revert CustomErrors.InvalidAmount();
+        if (token.allowance(msg.sender, address(this)) < totalAmount) revert CustomErrors.InvalidAllowance();
+        if (!token.transferFrom(msg.sender, address(this), totalAmount)) revert CustomErrors.TransferFailed();
+        if (token.balanceOf(address(this)) < totalAmount) revert CustomErrors.TransferFailed();
 
         uint256 totalFees = 0;
 
@@ -220,7 +224,7 @@ contract OrganizationContract {
             address recipient = _recipients[i];
             uint256 amount = _amounts[i];
 
-            require(recipients[recipient].recipientId != 0, CustomErrors.RecipientNotFound());
+            if (recipients[recipient].recipientId == 0) revert CustomErrors.RecipientNotFound();
 
             uint256 fee = (amount * transactionFee) / 10000;
             uint256 amountAfterFee = amount - fee;
@@ -236,21 +240,23 @@ contract OrganizationContract {
             paymentHistory.push(payment);
 
             if (recipients[recipient].advanceCollected > 0) {
-                require(
-                    token.transfer(recipient, amount - recipients[recipient].advanceCollected),
-                    CustomErrors.TransferFailed()
-                );
+                if (!token.transfer(recipient, amount - recipients[recipient].advanceCollected)) {
+                    revert CustomErrors.TransferFailed();
+                }
             } else {
-                require(token.transfer(recipient, amount), CustomErrors.TransferFailed());
+                if (!token.transfer(recipient, amount)) {
+                    revert CustomErrors.TransferFailed();
+                }
             }
             recipients[recipient].advanceCollected = 0;
-            // require(token.transfer(recipient, amountAfterFee), "Token transfer to recipient failed");
 
             emit TokenDisbursed(_tokenAddress, recipient, amountAfterFee);
         }
 
         if (totalFees > 0) {
-            require(token.transfer(feeCollector, totalFees), "Fee transfer failed");
+            if (!token.transfer(feeCollector, totalFees)) {
+                revert CustomErrors.TransferFailed();
+            }
         }
 
         emit BatchDisbursement(_tokenAddress, _recipients.length, totalAmount);
@@ -263,8 +269,8 @@ contract OrganizationContract {
      * @return Recipient information
      */
     function getRecipient(address _address) public view returns (Structs.Recipient memory) {
-        require(_address != address(0), CustomErrors.InvalidAddress());
-        require(recipients[_address].recipientId != bytes32(0), CustomErrors.RecipientNotFound());
+        if (_address == address(0)) revert CustomErrors.InvalidAddress();
+        if (recipients[_address].recipientId == bytes32(0)) revert CustomErrors.RecipientNotFound();
         return recipients[_address];
     }
 
@@ -275,9 +281,9 @@ contract OrganizationContract {
      */
     function updateRecipient(address _address, string memory _name) public {
         _onlyOwner();
-        require(_address != address(0), CustomErrors.InvalidAddress());
-        require(recipients[_address].recipientId != 0, CustomErrors.RecipientNotFound());
-        require(bytes(_name).length > 0, CustomErrors.NameRequired());
+        if (_address == address(0)) revert CustomErrors.InvalidAddress();
+        if (recipients[_address].recipientId == 0) revert CustomErrors.RecipientNotFound();
+        if (bytes(_name).length == 0) revert CustomErrors.NameRequired();
 
         Structs.Recipient storage recipient = recipients[_address];
         recipient.name = _name;
@@ -299,8 +305,8 @@ contract OrganizationContract {
      */
     function updateOrganizationInfo(string memory _name, string memory _description) public {
         _onlyOwner();
-        require(bytes(_name).length > 0, CustomErrors.NameRequired());
-        require(bytes(_description).length > 0, CustomErrors.DescriptionRequired());
+        if (bytes(_name).length == 0) revert CustomErrors.NameRequired();
+        if (bytes(_description).length == 0) revert CustomErrors.DescriptionRequired();
 
         organizationInfo.name = _name;
         organizationInfo.description = _description;
@@ -323,7 +329,7 @@ contract OrganizationContract {
      */
     function setRecipientAdvanceLimit(address _recipient, uint256 _limit) public {
         _onlyOwner();
-        require(recipients[_recipient].recipientId != 0, CustomErrors.RecipientNotFound());
+        if (recipients[_recipient].recipientId == 0) revert CustomErrors.RecipientNotFound();
         recipientAdvanceLimit[_recipient] = _limit;
     }
 
@@ -334,10 +340,10 @@ contract OrganizationContract {
      * @param _tokenAddress Token address for the advance
      */
     function requestAdvance(uint256 _amount, uint256 _repaymentDate, address _tokenAddress) public {
-        require(recipients[msg.sender].recipientId != bytes32(0), CustomErrors.RecipientNotFound());
-        require(_amount > 0, "Amount must be greater than 0");
-        require(_amount <= recipientAdvanceLimit[msg.sender], "Amount exceeds advance limit");
-        require(_repaymentDate > block.timestamp, "Repayment date must be in the future");
+        if (recipients[msg.sender].recipientId == bytes32(0)) revert CustomErrors.RecipientNotFound();
+        if (_amount == 0) revert CustomErrors.InvalidAmount();
+        if (_amount > recipientAdvanceLimit[msg.sender]) revert CustomErrors.InvalidAmount();
+        if (_repaymentDate <= block.timestamp) revert CustomErrors.InvalidInput();
 
         Structs.AdvanceRequest memory newRequest = Structs.AdvanceRequest({
             recipient: msg.sender,
@@ -351,7 +357,6 @@ contract OrganizationContract {
         });
 
         advanceRequests[msg.sender] = newRequest;
-
         advanceRequestCount++;
 
         emit AdvanceRequested(msg.sender, _amount);
@@ -364,21 +369,22 @@ contract OrganizationContract {
      */
     function approveAdvance(address _recipientAddress) public returns (bool) {
         _onlyOwner();
-        require(_recipientAddress == address(0), CustomErrors.InvalidAddress());
+        if (_recipientAddress == address(0)) revert CustomErrors.InvalidAddress();
         Structs.AdvanceRequest storage request = advanceRequests[_recipientAddress];
-        require(!request.approved, CustomErrors.AlreadyApproved());
-        require(recipients[request.recipient].recipientId != 0, CustomErrors.RecipientNotFound());
+        if (request.approved) revert CustomErrors.AlreadyApproved();
+        if (recipients[request.recipient].recipientId == 0) revert CustomErrors.RecipientNotFound();
 
         request.approved = true;
         request.approvalDate = block.timestamp;
 
         IERC20 token = IERC20(request.tokenAddress);
-        require(token.balanceOf(msg.sender) >= request.amount, CustomErrors.InvalidAmount());
+        if (token.balanceOf(msg.sender) < request.amount) revert CustomErrors.InvalidAmount();
 
-        require(token.transferFrom(msg.sender, request.recipient, request.amount), CustomErrors.TransferFailed());
+        if (!token.transferFrom(msg.sender, request.recipient, request.amount)) {
+            revert CustomErrors.TransferFailed();
+        }
 
         emit AdvanceApproved(_recipientAddress);
-
         return true;
     }
 
@@ -430,6 +436,6 @@ contract OrganizationContract {
      */
 
     function _onlyOwner() internal view {
-        require(msg.sender == owner, CustomErrors.UnauthorizedAccess());
+        if (msg.sender != owner) revert CustomErrors.UnauthorizedAccess();
     }
 }

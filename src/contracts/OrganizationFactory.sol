@@ -1,8 +1,8 @@
 //SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.19;
 
 import "../interfaces/IERC20.sol";
-import "../libraries/Structs.sol";
+import "../libraries/structs.sol";
 import "../libraries/errors.sol";
 import "./Tokens.sol";
 import {OrganizationContract} from "./OrganizationContract.sol";
@@ -32,19 +32,16 @@ contract OrganizationFactory is TokenRegistry {
      * @return Address of the newly created organization contract
      */
     function createOrganization(string memory _name, string memory _description) public returns (address) {
-        require(bytes(_name).length > 0, CustomErrors.NameRequired());
-        require(bytes(_description).length > 0, CustomErrors.DescriptionRequired());
-        require(organizationContracts[msg.sender] == address(0), "Organization already exists for this address");
+        if (bytes(_name).length == 0) revert CustomErrors.NameRequired();
+        if (bytes(_description).length == 0) revert CustomErrors.DescriptionRequired();
+        if (organizationContracts[msg.sender] != address(0)) revert CustomErrors.OrganizationAlreadyExists();
 
-        // Create new organization contract
-        OrganizationContract newOrg = new OrganizationContract(msg.sender, _name, _description);
+        OrganizationContract newOrganization = new OrganizationContract(msg.sender, _name, _description);
+        organizationContracts[msg.sender] = address(newOrganization);
 
-        // Store the organization contract address
-        organizationContracts[msg.sender] = address(newOrg);
+        emit OrganizationCreated(address(newOrganization), msg.sender, _name);
 
-        emit OrganizationCreated(address(newOrg), msg.sender, _name);
-
-        return address(newOrg);
+        return address(newOrganization);
     }
 
     /**
@@ -63,7 +60,7 @@ contract OrganizationFactory is TokenRegistry {
      */
     function removeToken(address _tokenAddress) public override {
         _onlyOwner();
-        require(_tokenAddress != address(0), CustomErrors.InvalidToken());
+        if (_tokenAddress == address(0)) revert CustomErrors.InvalidToken();
         super.removeToken(_tokenAddress);
     }
 
