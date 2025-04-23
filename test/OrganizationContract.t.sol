@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
+pragma solidity ^0.8.28;
 
 import "forge-std/Test.sol";
 import "../src/contracts/OrganizationContract.sol" as OrgContract;
 import "../src/contracts/OrganizationFactory.sol";
 import "../src/interfaces/IERC20.sol";
 import "../src/libraries/structs.sol" as StructLib;
+import "../src/libraries/errors.sol";
 
 contract MockERC20 is IERC20 {
     mapping(address => uint256) private _balances;
@@ -75,7 +76,7 @@ contract OrganizationContractTest is Test {
         recipient = address(2);
         feeCollector = address(3);
         
-        factory = new OrganizationFactory();
+        factory = new OrganizationFactory(feeCollector);
         address orgAddress = factory.createOrganization("Test Org", "Test Description");
         org = OrgContract.OrganizationContract(orgAddress);
         
@@ -87,9 +88,6 @@ contract OrganizationContractTest is Test {
         
         // Approve organization to spend tokens
         token.approve(address(org), type(uint256).max);
-
-        // Set fee collector
-        org.setFeeCollector(feeCollector);
 
         // Add token to supported tokens
         factory.addToken("Test Token", address(token));
@@ -253,18 +251,7 @@ contract OrganizationContractTest is Test {
         assertEq(token.balanceOf(feeCollector), fee, "Fee collector should receive correct fee");
     }
 
-    function testSetTransactionFee() public {
-        uint256 newFee = 30;
-        org.setTransactionFee(newFee);
-        assertEq(org.transactionFee(), newFee, "Transaction fee should be updated");
-    }
-
-    function testSetFeeCollector() public {
-        address newCollector = address(4);
-        org.setFeeCollector(newCollector);
-        assertEq(org.feeCollector(), newCollector, "Fee collector should be updated");
-    }
-
+  
     function testSetRecipientAdvanceLimit() public {
         org.createRecipient(recipient, "Test Recipient", 1000);
         uint256 newLimit = 200;
@@ -332,14 +319,27 @@ contract OrganizationContractTest is Test {
         org.disburseToken(address(token), recipient, amount - 1);
     }
 
+    function testSetTransactionFee() public {
+        uint256 newFee = 30;
+        factory.updateOrganizationTransactionFee(owner, newFee);
+        assertEq(org.transactionFee(), newFee, "Transaction fee should be updated");
+    }
+
     function test_RevertWhen_SetTransactionFeeTooHigh() public {
+        uint256 newFee = 81;
         vm.expectRevert("Fee too high");
-        org.setTransactionFee(81);
+        factory.updateOrganizationTransactionFee(owner, newFee);
+    }
+
+    function testSetFeeCollector() public {
+        address newCollector = address(4);
+        factory.updateOrganizationFeeCollector(owner, newCollector);
+        assertEq(org.feeCollector(), newCollector, "Fee collector should be updated");
     }
 
     function test_RevertWhen_SetFeeCollectorToZeroAddress() public {
-        vm.expectRevert();
-        org.setFeeCollector(address(0));
+        vm.expectRevert(CustomErrors.InvalidAddress.selector);
+        factory.updateOrganizationFeeCollector(owner, address(0));
     }
 
     function test_RevertWhen_BatchCreateRecipientsInvalidInput() public {

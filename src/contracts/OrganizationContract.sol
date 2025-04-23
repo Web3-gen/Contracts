@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.28;
 
 import "../interfaces/IERC20.sol";
 import "../libraries/structs.sol";
@@ -13,20 +13,20 @@ import "./Tokens.sol";
 contract OrganizationContract {
     address public owner;
     address public factory;
-    Structs.Organization public organizationInfo;
-
-    mapping(address => Structs.Recipient) public recipients;
-    uint256 public recipientCount;
-
-    Structs.Payment[] public paymentHistory;
-
-    mapping(address => Structs.AdvanceRequest) public advanceRequests;
-    uint256 public advanceRequestCount;
-    mapping(address => uint256) public recipientAdvanceLimit;
-    uint256 public defaultAdvanceLimit;
-
-    uint256 public transactionFee;
     address public feeCollector;
+
+    Structs.Organization public organizationInfo;
+    Structs.Payment[] public paymentHistory;
+    
+    mapping(address => Structs.Recipient) public recipients;
+    mapping(address => Structs.AdvanceRequest) public advanceRequests;
+    mapping(address => uint256) public recipientAdvanceLimit;
+
+    uint256 public recipientCount;
+    uint256 public advanceRequestCount;    
+    uint256 public defaultAdvanceLimit;
+    uint256 public transactionFee;
+    
 
     event RecipientCreated(bytes32 indexed recipientId, address indexed walletAddress, string name);
     event TokenDisbursed(address indexed tokenAddress, address indexed recipient, uint256 amount);
@@ -35,10 +35,12 @@ contract OrganizationContract {
     event AdvanceApproved(address indexed recipient);
     event AdvanceRepaid(uint256 indexed requestId);
     event PayslipGenerated(address indexed recipient, uint256 indexed paymentId, string uri);
+    event TransactionFeeUpdated(uint256 newFee);
+    event FeeCollectorUpdated(address newCollector);
 
-    constructor(address _owner, string memory _name, string memory _description) {
+    constructor(address _owner, address _factory, address _factoryFeeCollector, string memory _name, string memory _description) {
         owner = _owner;
-        factory = msg.sender;
+        factory = _factory;
 
         organizationInfo = Structs.Organization({
             organizationId: bytes32(keccak256(abi.encodePacked(_owner, block.timestamp))),
@@ -50,7 +52,7 @@ contract OrganizationContract {
         });
 
         transactionFee = 50;
-        feeCollector = _owner;
+        feeCollector = _factoryFeeCollector;
         defaultAdvanceLimit = 0.1 ether;
     }
 
@@ -59,9 +61,10 @@ contract OrganizationContract {
      * @param _fee New fee in basis points (e.g., 50 = 0.5%)
      */
     function setTransactionFee(uint256 _fee) external {
-        _onlyOwner();
+        _onlyFactory();
         require(_fee <= 80, "Fee too high");
         transactionFee = _fee;
+        emit TransactionFeeUpdated(_fee);
     }
 
     /**
@@ -69,9 +72,10 @@ contract OrganizationContract {
      * @param _collector New fee collector address
      */
     function setFeeCollector(address _collector) external {
-        _onlyOwner();
+        _onlyFactory();
         if (_collector == address(0)) revert CustomErrors.InvalidAddress();
         feeCollector = _collector;
+        emit FeeCollectorUpdated(_collector);
     }
 
     /**
@@ -202,7 +206,7 @@ contract OrganizationContract {
             if (recipients[_recipients[i]].advanceCollected > 0) {
                 if (_recipients[i] == address(0)) revert CustomErrors.InvalidAddress();
                 if (!isTokenSupported(_tokenAddress)) revert CustomErrors.TokenNotSupported();
-                if (_amounts[i] - recipients[_recipients[i]].advanceCollected == 0) revert CustomErrors.InvalidAmount();
+                // if (_amounts[i] - recipients[_recipients[i]].advanceCollected == 0) revert CustomErrors.InvalidAmount();
                 totalAmount += _amounts[i] - recipients[_recipients[i]].advanceCollected;
                 continue;
             } else {
@@ -379,6 +383,7 @@ contract OrganizationContract {
 
         IERC20 token = IERC20(request.tokenAddress);
         if (token.balanceOf(msg.sender) < request.amount) revert CustomErrors.InvalidAmount();
+        if (token.allowance(msg.sender, address(this)) < request.amount) revert CustomErrors.InvalidAllowance();
 
         if (!token.transferFrom(msg.sender, request.recipient, request.amount)) {
             revert CustomErrors.TransferFailed();
@@ -437,5 +442,13 @@ contract OrganizationContract {
 
     function _onlyOwner() internal view {
         if (msg.sender != owner) revert CustomErrors.UnauthorizedAccess();
+    }
+
+    /**
+     * @dev Checks if the caller is the factory deployer of the organization
+     */
+
+    function _onlyFactory() internal view {
+        if (msg.sender != factory) revert CustomErrors.UnauthorizedAccess();
     }
 }
