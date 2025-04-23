@@ -14,7 +14,7 @@ contract TokenTest is Test {
         owner = address(this);
         token1 = address(1);
         token2 = address(2);
-        
+
         tokenRegistry = new TokenRegistry();
     }
 
@@ -25,7 +25,7 @@ contract TokenTest is Test {
     function testAddToken() public {
         string memory tokenName = "Test Token";
         tokenRegistry.addToken(tokenName, token1);
-        
+
         assertEq(tokenRegistry.supportedTokensCount(), 1, "Supported tokens count should increase");
         assertEq(tokenRegistry.getTokenName(token1), tokenName, "Token name should be set correctly");
         assertTrue(tokenRegistry.isTokenSupported(token1), "Token should be supported");
@@ -35,7 +35,7 @@ contract TokenTest is Test {
         string memory tokenName = "Test Token";
         tokenRegistry.addToken(tokenName, token1);
         tokenRegistry.removeToken(token1);
-        
+
         assertEq(tokenRegistry.supportedTokensCount(), 0, "Supported tokens count should decrease");
         assertEq(bytes(tokenRegistry.getTokenName(token1)).length, 0, "Token name should be removed");
         assertFalse(tokenRegistry.isTokenSupported(token1), "Token should not be supported");
@@ -54,7 +54,7 @@ contract TokenTest is Test {
     function test_RevertWhen_AddExistingToken() public {
         string memory tokenName = "Test Token";
         tokenRegistry.addToken(tokenName, token1);
-        
+
         vm.expectRevert("Token already exists");
         tokenRegistry.addToken(tokenName, token1);
     }
@@ -78,4 +78,4 @@ contract TokenTest is Test {
         vm.expectRevert("Invalid token address");
         tokenRegistry.isTokenSupported(address(0));
     }
-} 
+}

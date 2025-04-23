@@ -18,13 +18,8 @@ contract OrganizationFactory is TokenRegistry {
     mapping(address => Structs.Organization) public organizations;
 
     event OrganizationCreated(
-        address indexed organizationAddress, 
-        address indexed owner, 
-        string name,
-        string description,
-        uint256 createdAt
+        address indexed organizationAddress, address indexed owner, string name, string description, uint256 createdAt
     );
-
 
     constructor(address _feeCollector) {
         owner = msg.sender;
@@ -42,13 +37,8 @@ contract OrganizationFactory is TokenRegistry {
         if (bytes(_description).length == 0) revert CustomErrors.DescriptionRequired();
         if (organizationContracts[msg.sender] != address(0)) revert CustomErrors.OrganizationAlreadyExists();
 
-        OrganizationContract newOrganization = new OrganizationContract(
-            msg.sender, 
-            address(this), 
-            feeCollector, 
-            _name, 
-            _description
-        );
+        OrganizationContract newOrganization =
+            new OrganizationContract(msg.sender, address(this), feeCollector, _name, _description);
         address orgAddress = address(newOrganization);
         organizationContracts[msg.sender] = orgAddress;
 
@@ -63,13 +53,7 @@ contract OrganizationFactory is TokenRegistry {
             updatedAt: block.timestamp
         });
 
-        emit OrganizationCreated(
-            orgAddress, 
-            msg.sender, 
-            _name,
-            _description,
-            block.timestamp
-        );
+        emit OrganizationCreated(orgAddress, msg.sender, _name, _description, block.timestamp);
 
         return orgAddress;
     }
@@ -122,7 +106,7 @@ contract OrganizationFactory is TokenRegistry {
         _onlyOwner();
         address orgAddress = organizationContracts[_orgOwner];
         if (orgAddress == address(0)) revert CustomErrors.OrganizationNotFound();
-        
+
         OrganizationContract org = OrganizationContract(orgAddress);
         org.setTransactionFee(_newFee);
     }
@@ -136,7 +120,7 @@ contract OrganizationFactory is TokenRegistry {
         _onlyOwner();
         address orgAddress = organizationContracts[_orgOwner];
         if (orgAddress == address(0)) revert CustomErrors.OrganizationNotFound();
-        
+
         OrganizationContract org = OrganizationContract(orgAddress);
         org.setFeeCollector(_newCollector);
     }

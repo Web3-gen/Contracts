@@ -28,9 +28,9 @@ contract TokenRegistry {
      */
     function addToken(string memory _tokenName, address _tokenAddress) public virtual {
         _onlyOwner();
-        require(bytes(_tokenName).length > 0, "Token name is required");
-        require(_tokenAddress != address(0), "Invalid token address");
-        require(bytes(supportedTokens[_tokenAddress]).length == 0, "Token already exists");
+        if (bytes(_tokenName).length == 0) revert("Token name is required");
+    if (_tokenAddress == address(0)) revert("Invalid token address");
+    if (bytes(supportedTokens[_tokenAddress]).length != 0) revert("Token already exists");
 
         supportedTokens[_tokenAddress] = _tokenName;
         supportedTokensCount++;
