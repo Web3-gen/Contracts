@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "../src/contracts/OrganizationFactory.sol";
 import "../src/contracts/OrganizationContract.sol" as OrgContract;
 import "../src/libraries/structs.sol";
+import "../src/libraries/errors.sol";
 
 contract OrganizationFactoryTest is Test {
     OrganizationFactory public factory;
@@ -18,17 +19,17 @@ contract OrganizationFactoryTest is Test {
         user = address(1);
         token = address(2);
         feeCollector = address(3);
-        
+
         factory = new OrganizationFactory(feeCollector);
     }
 
     function testCreateOrganization() public {
         string memory name = "Test Org";
         string memory description = "Test Description";
-        
+
         address orgAddress = factory.createOrganization(name, description);
         assertTrue(orgAddress != address(0), "Organization address should not be zero");
-        
+
         // Verify organization contract details
         OrgContract.OrganizationContract org = OrgContract.OrganizationContract(orgAddress);
         assertEq(org.owner(), owner, "Owner should be set correctly");
@@ -45,7 +46,7 @@ contract OrganizationFactoryTest is Test {
 
     function testAddToken() public {
         string memory tokenName = "Test Token";
-        
+
         factory.addToken(tokenName, token);
         assertTrue(factory.isTokenSupported(token), "Token should be supported");
         assertEq(factory.getTokenName(token), tokenName, "Token name should be set correctly");
@@ -53,83 +54,83 @@ contract OrganizationFactoryTest is Test {
 
     function testRemoveToken() public {
         string memory tokenName = "Test Token";
-        
+
         factory.addToken(tokenName, token);
         factory.removeToken(token);
-        
+
         assertFalse(factory.isTokenSupported(token), "Token should not be supported");
         assertEq(bytes(factory.getTokenName(token)).length, 0, "Token name should be removed");
     }
 
     function testGetSupportedTokensCount() public {
         assertEq(factory.getSupportedTokensCount(), 0, "Initial count should be 0");
-        
+
         factory.addToken("Token 1", address(1));
         assertEq(factory.getSupportedTokensCount(), 1, "Count should increase after adding token");
-        
+
         factory.addToken("Token 2", address(2));
         assertEq(factory.getSupportedTokensCount(), 2, "Count should increase after adding another token");
-        
+
         factory.removeToken(address(1));
         assertEq(factory.getSupportedTokensCount(), 1, "Count should decrease after removing token");
     }
 
     function test_RevertWhen_CreateOrganizationWithEmptyName() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.NameRequired.selector);
         factory.createOrganization("", "Test Description");
     }
 
     function test_RevertWhen_CreateOrganizationWithEmptyDescription() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.DescriptionRequired.selector);
         factory.createOrganization("Test Org", "");
     }
 
     function test_RevertWhen_AddTokenWithEmptyName() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.InvalidTokenName.selector);
         factory.addToken("", token);
     }
 
     function test_RevertWhen_AddTokenWithZeroAddress() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.InvalidTokenAddress.selector);
         factory.addToken("Test Token", address(0));
     }
 
     function test_RevertWhen_AddExistingToken() public {
         factory.addToken("Test Token", token);
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.TokenAlreadySupported.selector);
         factory.addToken("Test Token", token);
     }
 
     function test_RevertWhen_RemoveNonExistentToken() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.InvalidToken.selector);
         factory.removeToken(token);
     }
 
     function test_RevertWhen_RemoveTokenWithZeroAddress() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.InvalidToken.selector);
         factory.removeToken(address(0));
     }
 
     function test_RevertWhen_GetTokenNameWithZeroAddress() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.InvalidTokenAddress.selector);
         factory.getTokenName(address(0));
     }
 
     function test_RevertWhen_IsTokenSupportedWithZeroAddress() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.InvalidTokenAddress.selector);
         factory.isTokenSupported(address(0));
     }
 
-     function testUpdateOrganizationTransactionFee() public {
+    function testUpdateOrganizationTransactionFee() public {
         // Create an organization first
         address orgOwner = address(1);
         vm.prank(orgOwner);
         address orgAddress = factory.createOrganization("Test Org", "Test Description");
-        
+
         // Update transaction fee
         uint256 newFee = 30;
         factory.updateOrganizationTransactionFee(orgOwner, newFee);
-        
+
         // Verify the fee was updated
         OrgContract.OrganizationContract org = OrgContract.OrganizationContract(orgAddress);
         assertEq(org.transactionFee(), newFee, "Transaction fee should be updated");
@@ -140,11 +141,11 @@ contract OrganizationFactoryTest is Test {
         address orgOwner = address(1);
         vm.prank(orgOwner);
         address orgAddress = factory.createOrganization("Test Org", "Test Description");
-        
+
         // Update fee collector
         address newCollector = address(2);
         factory.updateOrganizationFeeCollector(orgOwner, newCollector);
-        
+
         // Verify the fee collector was updated
         OrgContract.OrganizationContract org = OrgContract.OrganizationContract(orgAddress);
         assertEq(org.feeCollector(), newCollector, "Fee collector should be updated");
@@ -155,10 +156,10 @@ contract OrganizationFactoryTest is Test {
         address orgOwner = address(1);
         vm.prank(orgOwner);
         factory.createOrganization("Test Org", "Test Description");
-        
+
         // Try to update fee as non-owner
         vm.prank(address(2));
-        vm.expectRevert("Not authorized");
+        vm.expectRevert(CustomErrors.UnauthorizedAccess.selector);
         factory.updateOrganizationTransactionFee(orgOwner, 30);
     }
 
@@ -167,10 +168,10 @@ contract OrganizationFactoryTest is Test {
         address orgOwner = address(1);
         vm.prank(orgOwner);
         factory.createOrganization("Test Org", "Test Description");
-        
+
         // Try to update fee collector as non-owner
         vm.prank(address(2));
-        vm.expectRevert("Not authorized");
+        vm.expectRevert(CustomErrors.UnauthorizedAccess.selector);
         factory.updateOrganizationFeeCollector(orgOwner, address(3));
     }
 
@@ -188,4 +189,4 @@ contract OrganizationFactoryTest is Test {
         vm.expectRevert(CustomErrors.OrganizationNotFound.selector);
         factory.getOrganizationDetails(address(1));
     }
-} 
+}

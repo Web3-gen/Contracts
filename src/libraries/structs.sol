@@ -34,7 +34,6 @@ library Structs {
         uint256 amount;
         uint256 requestDate;
         uint256 approvalDate;
-        uint256 repaymentDate;
         bool approved;
         bool repaid;
         address tokenAddress;

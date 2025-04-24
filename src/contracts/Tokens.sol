@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import "../libraries/errors.sol";
+
 /**
  * @title TokenRegistry
  * @dev Manages the registry of supported tokens for payments
@@ -14,7 +16,7 @@ contract TokenRegistry {
     event TokenRemoved(address indexed tokenAddress);
 
     function _onlyOwner() internal view {
-        require(msg.sender == owner, "Not authorized");
+        if (msg.sender != owner) revert CustomErrors.UnauthorizedAccess();
     }
 
     constructor() {
@@ -28,9 +30,9 @@ contract TokenRegistry {
      */
     function addToken(string memory _tokenName, address _tokenAddress) public virtual {
         _onlyOwner();
-        require(bytes(_tokenName).length > 0, "Token name is required");
-        require(_tokenAddress != address(0), "Invalid token address");
-        require(bytes(supportedTokens[_tokenAddress]).length == 0, "Token already exists");
+        if (bytes(_tokenName).length == 0) revert CustomErrors.InvalidTokenName();
+        if (_tokenAddress == address(0)) revert CustomErrors.InvalidTokenAddress();
+        if (bytes(supportedTokens[_tokenAddress]).length != 0) revert CustomErrors.TokenAlreadySupported();
 
         supportedTokens[_tokenAddress] = _tokenName;
         supportedTokensCount++;
@@ -44,7 +46,7 @@ contract TokenRegistry {
      * @return Token name
      */
     function getTokenName(address _tokenAddress) public view returns (string memory) {
-        require(_tokenAddress != address(0), "Invalid token address");
+        if (_tokenAddress == address(0)) revert CustomErrors.InvalidTokenAddress();
         return supportedTokens[_tokenAddress];
     }
 
@@ -54,8 +56,8 @@ contract TokenRegistry {
      */
     function removeToken(address _tokenAddress) public virtual {
         _onlyOwner();
-        require(_tokenAddress != address(0), "Invalid token address");
-        require(bytes(supportedTokens[_tokenAddress]).length > 0, "Token does not exist");
+        if (_tokenAddress == address(0)) revert CustomErrors.InvalidTokenAddress();
+        if (bytes(supportedTokens[_tokenAddress]).length == 0) revert CustomErrors.InvalidToken();
 
         delete supportedTokens[_tokenAddress];
         supportedTokensCount--;
@@ -69,7 +71,7 @@ contract TokenRegistry {
      * @return True if the token is supported, false otherwise
      */
     function isTokenSupported(address _tokenAddress) public view returns (bool) {
-        require(_tokenAddress != address(0), "Invalid token address");
+        if (_tokenAddress == address(0)) revert CustomErrors.InvalidTokenAddress();
         return bytes(supportedTokens[_tokenAddress]).length > 0;
     }
 
