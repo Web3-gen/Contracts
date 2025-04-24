@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import "../src/contracts/OrganizationFactory.sol";
 import "../src/contracts/OrganizationContract.sol" as OrgContract;
 import "../src/libraries/structs.sol";
+import "../src/libraries/errors.sol";
 
 contract OrganizationFactoryTest is Test {
     OrganizationFactory public factory;
@@ -75,48 +76,48 @@ contract OrganizationFactoryTest is Test {
     }
 
     function test_RevertWhen_CreateOrganizationWithEmptyName() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.NameRequired.selector);
         factory.createOrganization("", "Test Description");
     }
 
     function test_RevertWhen_CreateOrganizationWithEmptyDescription() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.DescriptionRequired.selector);
         factory.createOrganization("Test Org", "");
     }
 
     function test_RevertWhen_AddTokenWithEmptyName() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.InvalidTokenName.selector);
         factory.addToken("", token);
     }
 
     function test_RevertWhen_AddTokenWithZeroAddress() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.InvalidTokenAddress.selector);
         factory.addToken("Test Token", address(0));
     }
 
     function test_RevertWhen_AddExistingToken() public {
         factory.addToken("Test Token", token);
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.TokenAlreadySupported.selector);
         factory.addToken("Test Token", token);
     }
 
     function test_RevertWhen_RemoveNonExistentToken() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.InvalidToken.selector);
         factory.removeToken(token);
     }
 
     function test_RevertWhen_RemoveTokenWithZeroAddress() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.InvalidToken.selector);
         factory.removeToken(address(0));
     }
 
     function test_RevertWhen_GetTokenNameWithZeroAddress() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.InvalidTokenAddress.selector);
         factory.getTokenName(address(0));
     }
 
     function test_RevertWhen_IsTokenSupportedWithZeroAddress() public {
-        vm.expectRevert();
+        vm.expectRevert(CustomErrors.InvalidTokenAddress.selector);
         factory.isTokenSupported(address(0));
     }
 
@@ -158,7 +159,7 @@ contract OrganizationFactoryTest is Test {
 
         // Try to update fee as non-owner
         vm.prank(address(2));
-        vm.expectRevert("Not authorized");
+        vm.expectRevert(CustomErrors.UnauthorizedAccess.selector);
         factory.updateOrganizationTransactionFee(orgOwner, 30);
     }
 
@@ -170,7 +171,7 @@ contract OrganizationFactoryTest is Test {
 
         // Try to update fee collector as non-owner
         vm.prank(address(2));
-        vm.expectRevert("Not authorized");
+        vm.expectRevert(CustomErrors.UnauthorizedAccess.selector);
         factory.updateOrganizationFeeCollector(orgOwner, address(3));
     }
 

@@ -27,25 +27,43 @@ contract OrganizationContract {
     uint256 public defaultAdvanceLimit;
     uint256 public transactionFee;
 
-    uint256 private _status; // 0: non-entered, 1: entered
+    // Reentrancy guard state variable
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+    uint256 private _status;
 
-    modifier nonReentrant() {
-        if (_status != 0) revert CustomErrors.ReentrantCall();
-        _status = 1;
-        _;
-        _status = 0;
-    }
-
+    // Events
     event RecipientCreated(bytes32 indexed recipientId, address indexed walletAddress, string name);
+    event RecipientUpdated(bytes32 indexed recipientId, address indexed walletAddress, string name);
     event TokenDisbursed(address indexed tokenAddress, address indexed recipient, uint256 amount);
     event BatchDisbursement(address indexed tokenAddress, uint256 recipientCount, uint256 totalAmount);
     event AdvanceRequested(address indexed recipient, uint256 amount);
     event AdvanceApproved(address indexed recipient);
-    event AdvanceRepaid(uint256 indexed requestId);
+    event AdvanceRepaid(address indexed recipient, uint256 amount);
+    event AdvanceLimitSet(address indexed recipient, uint256 amount);
+    event DefaultAdvanceLimitSet(uint256 amount);
     event PayslipGenerated(address indexed recipient, uint256 indexed paymentId, string uri);
     event TransactionFeeUpdated(uint256 newFee);
     event FeeCollectorUpdated(address newCollector);
     event OrganizationInfoUpdated(bytes32 indexed organizationId, string name, string description);
+
+    /**
+     * @dev Modifier to prevent reentrancy attacks
+     */
+    modifier nonReentrant() {
+        // On the first call to nonReentrant, _status will be _NOT_ENTERED
+        if (_status == _ENTERED) revert CustomErrors.ReentrantCall();
+
+        // Any calls to nonReentrant after this point will fail
+        _status = _ENTERED;
+
+        _;
+
+        // By storing the original value once again, a refund is triggered 
+        _status = _NOT_ENTERED;
+    }
+
+
 
     constructor(
         address _owner,
@@ -54,6 +72,11 @@ contract OrganizationContract {
         string memory _name,
         string memory _description
     ) {
+        if (_owner == address(0)) revert CustomErrors.InvalidAddress();
+        if (_factory == address(0)) revert CustomErrors.InvalidAddress();
+        if (_factoryFeeCollector == address(0)) revert CustomErrors.InvalidAddress();
+        if (bytes(_name).length == 0) revert CustomErrors.NameRequired();
+        if (bytes(_description).length == 0) revert CustomErrors.DescriptionRequired();
         owner = _owner;
         factory = _factory;
 
@@ -69,7 +92,7 @@ contract OrganizationContract {
         transactionFee = 50;
         feeCollector = _factoryFeeCollector;
         defaultAdvanceLimit = 0.1 ether;
-        _status = 0;
+        _status = _NOT_ENTERED;
     }
 
     /**
@@ -147,152 +170,177 @@ contract OrganizationContract {
     }
 
     /**
+     * @dev Calculates the fee for a given amount
+     * @param _amount Amount to calculate fee for
+     * @return Fee amount
+     */
+    function calculateFee(uint256 _amount) public view returns (uint256) {
+        return (_amount * transactionFee) / 10000;
+    }
+    /**
+     * @dev Calculates the gross amount for a given net amount
+     * @param _netAmount Net amount to calculate gross amount for
+     * @return Gross amount
+     */
+    function calculateGrossAmount(uint256 _netAmount) public view returns (uint256) {
+    return (_netAmount * 10000) / (10000 - transactionFee);
+}
+
+    /**
      * @dev Disburses tokens to a single recipient
      * @param _tokenAddress Address of the token to disburse
      * @param _recipient Recipient address
-     * @param _amount Amount to disburse
+     * @param _netAmount Amount to disburse
      * @return True if successful
      */
-    function disburseToken(address _tokenAddress, address _recipient, uint256 _amount)
-        public
-        nonReentrant
-        returns (bool)
-    {
-        _onlyOwner();
-        if (_tokenAddress == address(0)) revert CustomErrors.InvalidAddress();
-        if (_recipient == address(0)) revert CustomErrors.InvalidAddress();
-        if (_amount == 0) revert CustomErrors.InvalidAmount();
-        if (!isTokenSupported(_tokenAddress)) revert CustomErrors.TokenNotSupported();
-        if (recipients[_recipient].recipientId == 0) revert CustomErrors.RecipientNotFound();
+    function disburseToken(address _tokenAddress, address _recipient, uint256 _netAmount)
+    public
+    nonReentrant
+    returns (bool)
+{
+    _onlyOwner();
+    if (_tokenAddress == address(0)) revert CustomErrors.InvalidAddress();
+    if (_recipient == address(0)) revert CustomErrors.InvalidAddress();
+    if (_netAmount == 0) revert CustomErrors.InvalidAmount();
+    if (!isTokenSupported(_tokenAddress)) revert CustomErrors.TokenNotSupported();
+    Structs.Recipient storage recipient = recipients[_recipient];
+    if (recipient.recipientId == 0) revert CustomErrors.RecipientNotFound();
 
-        uint256 fee = (_amount * transactionFee) / 10000;
-        uint256 amountAfterFee = _amount - fee;
+    uint256 grossAmount = calculateGrossAmount(_netAmount);
+    uint256 fee = calculateFee(grossAmount);
+    uint256 amountAfterFee = grossAmount - fee;
 
-        Structs.Payment memory payment = Structs.Payment({
-            recipient: _recipient,
-            tokenAddress: _tokenAddress,
-            amount: amountAfterFee,
-            timestamp: block.timestamp
-        });
+    require(amountAfterFee == _netAmount, "Mismatch in fee calculation"); // optional safety
 
-        paymentHistory.push(payment);
+    // Log payment
+    Structs.Payment memory payment = Structs.Payment({
+        recipient: _recipient,
+        tokenAddress: _tokenAddress,
+        amount: amountAfterFee,
+        timestamp: block.timestamp
+    });
+    paymentHistory.push(payment);
 
-        IERC20 token = IERC20(_tokenAddress);
-        uint256 totalAmount = _amount + fee;
-        if (token.balanceOf(msg.sender) < totalAmount) revert CustomErrors.InvalidAmount();
-        if (token.allowance(msg.sender, address(this)) < totalAmount) revert CustomErrors.InvalidAllowance();
+    IERC20 token = IERC20(_tokenAddress);
+    if (token.balanceOf(msg.sender) < grossAmount) revert CustomErrors.InvalidAmount();
+    if (token.allowance(msg.sender, address(this)) < grossAmount) revert CustomErrors.InvalidAllowance();
 
-        uint256 transferAmount = amountAfterFee;
-        if (recipients[_recipient].advanceCollected > 0) {
-            if (amountAfterFee <= recipients[_recipient].advanceCollected) {
-                revert CustomErrors.InvalidAmount();
-            }
-            transferAmount = amountAfterFee - recipients[_recipient].advanceCollected;
-            recipients[_recipient].advanceCollected = 0;
-            
-            // Clear the advance request completely
-            delete advanceRequests[_recipient];
+    uint256 transferAmount = _netAmount;
+
+    if (recipient.advanceCollected > 0) {
+        if (_netAmount <= recipient.advanceCollected) {
+            revert CustomErrors.InvalidAmount();
         }
-
-        if (!token.transferFrom(msg.sender, _recipient, transferAmount)) {
-            revert CustomErrors.TransferFailed();
-        }
-
-        if (fee > 0) {
-            if (!token.transferFrom(msg.sender, feeCollector, fee)) {
-                revert CustomErrors.TransferFailed();
-            }
-        }
-
-        emit TokenDisbursed(_tokenAddress, _recipient, amountAfterFee);
-        return true;
+        transferAmount = _netAmount - recipient.advanceCollected;
+        uint256 repaidAmount = recipient.advanceCollected;
+        recipient.advanceCollected = 0;
+        delete advanceRequests[_recipient];
+        emit AdvanceRepaid(_recipient, repaidAmount);
     }
+
+    bool success = token.transferFrom(msg.sender, _recipient, transferAmount);
+    if (!success) revert CustomErrors.TransferFailed();
+
+    if (fee > 0) {
+        success = token.transferFrom(msg.sender, feeCollector, fee);
+        if (!success) revert CustomErrors.TransferFailed();
+    }
+
+    emit TokenDisbursed(_tokenAddress, _recipient, _netAmount);
+    return true;
+}
+
 
     /**
      * @dev Disburses tokens to multiple recipients
      * @param _tokenAddress Address of the token to disburse
      * @param _recipients Array of recipient addresses
-     * @param _amounts Array of amounts to disburse
+     * @param _netAmounts Array of amounts to disburse
      * @return True if successful
      */
-    function batchDisburseToken(address _tokenAddress, address[] memory _recipients, uint256[] memory _amounts)
-        public
-        nonReentrant
-        returns (bool)
-    {
-        _onlyOwner();
-        if (_recipients.length != _amounts.length) revert CustomErrors.InvalidInput();
-        if (_tokenAddress == address(0)) revert CustomErrors.InvalidAddress();
-        if (!isTokenSupported(_tokenAddress)) revert CustomErrors.TokenNotSupported();
+    function batchDisburseToken(
+    address _tokenAddress,
+    address[] memory _recipients,
+    uint256[] memory _netAmounts
+)
+    public
+    nonReentrant
+    returns (bool)
+{
+    _onlyOwner();
+    if (_recipients.length != _netAmounts.length) revert CustomErrors.InvalidInput();
+    if (_tokenAddress == address(0)) revert CustomErrors.InvalidAddress();
+    if (!isTokenSupported(_tokenAddress)) revert CustomErrors.TokenNotSupported();
 
-        uint256 totalAmount = 0;
-        uint256 totalFees = 0;
+    uint256 totalGrossAmount = 0;
+    uint256 totalFees = 0;
+    uint256[] memory actualTransferAmounts = new uint256[](_recipients.length);
 
-        // First calculate total amounts and fees
-        for (uint256 i = 0; i < _recipients.length; i++) {
-            if (_amounts[i] == 0) revert CustomErrors.InvalidAmount();
-            if (_recipients[i] == address(0)) revert CustomErrors.InvalidAddress();
-            if (recipients[_recipients[i]].recipientId == 0) revert CustomErrors.RecipientNotFound();
+    for (uint256 i = 0; i < _recipients.length; i++) {
+        if (_netAmounts[i] == 0) revert CustomErrors.InvalidAmount();
+        if (_recipients[i] == address(0)) revert CustomErrors.InvalidAddress();
+        Structs.Recipient storage recipient = recipients[_recipients[i]];
+        if (recipient.recipientId == 0) revert CustomErrors.RecipientNotFound();
 
-            uint256 fee = (_amounts[i] * transactionFee) / 10000;
-            totalFees += fee;
+        uint256 grossAmount = calculateGrossAmount(_netAmounts[i]);
+        uint256 fee = calculateFee(grossAmount);
+        uint256 amountAfterFee = grossAmount - fee;
 
-            if (recipients[_recipients[i]].advanceCollected > 0) {
-                if (_amounts[i] <= recipients[_recipients[i]].advanceCollected) {
-                    revert CustomErrors.InvalidAmount();
-                }
-                totalAmount += _amounts[i] - recipients[_recipients[i]].advanceCollected;
-            } else {
-                totalAmount += _amounts[i];
+        require(amountAfterFee == _netAmounts[i], "Fee miscalculation");
+
+        totalGrossAmount += grossAmount;
+        totalFees += fee;
+
+        // Check if this payment would cover any advance
+        if (recipient.advanceCollected > 0) {
+            if (_netAmounts[i] <= recipient.advanceCollected) {
+                revert CustomErrors.InvalidAmount();
             }
+            actualTransferAmounts[i] = _netAmounts[i] - recipient.advanceCollected;
+        } else {
+            actualTransferAmounts[i] = _netAmounts[i];
         }
 
-        // Add fees to total amount that needs to be transferred from sender
-        uint256 totalTransferAmount = totalAmount + totalFees;
+        Structs.Payment memory payment = Structs.Payment({
+            recipient: _recipients[i],
+            tokenAddress: _tokenAddress,
+            amount: _netAmounts[i],
+            timestamp: block.timestamp
+        });
 
-        IERC20 token = IERC20(_tokenAddress);
-        if (token.balanceOf(msg.sender) < totalTransferAmount) revert CustomErrors.InvalidAmount();
-        if (token.allowance(msg.sender, address(this)) < totalTransferAmount) revert CustomErrors.InvalidAllowance();
-        if (!token.transferFrom(msg.sender, address(this), totalTransferAmount)) revert CustomErrors.TransferFailed();
-        if (token.balanceOf(address(this)) < totalTransferAmount) revert CustomErrors.TransferFailed();
-
-        // Process payments
-        for (uint256 i = 0; i < _recipients.length; i++) {
-            address recipient = _recipients[i];
-            uint256 amount = _amounts[i];
-
-            Structs.Payment memory payment = Structs.Payment({
-                recipient: recipient,
-                tokenAddress: _tokenAddress,
-                amount: amount,
-                timestamp: block.timestamp
-            });
-
-            paymentHistory.push(payment);
-
-            uint256 transferAmount = amount;
-            if (recipients[recipient].advanceCollected > 0) {
-                transferAmount = amount - recipients[recipient].advanceCollected;
-                recipients[recipient].advanceCollected = 0;
-                advanceRequests[recipient].repaid = true;
-            }
-
-            if (!token.transfer(recipient, transferAmount)) {
-                revert CustomErrors.TransferFailed();
-            }
-
-            emit TokenDisbursed(_tokenAddress, recipient, amount);
-        }
-
-        if (totalFees > 0) {
-            if (!token.transfer(feeCollector, totalFees)) {
-                revert CustomErrors.TransferFailed();
-            }
-        }
-
-        emit BatchDisbursement(_tokenAddress, _recipients.length, totalTransferAmount);
-        return true;
+        paymentHistory.push(payment);
     }
+
+    IERC20 token = IERC20(_tokenAddress);
+    if (token.balanceOf(msg.sender) < totalGrossAmount) revert CustomErrors.InvalidAmount();
+    if (token.allowance(msg.sender, address(this)) < totalGrossAmount) revert CustomErrors.InvalidAllowance();
+
+    for (uint256 i = 0; i < _recipients.length; i++) {
+        address recipient = _recipients[i];
+
+        // Repay advance if needed
+        if (recipients[recipient].advanceCollected > 0) {
+            uint256 repaidAmount = recipients[recipient].advanceCollected;
+            recipients[recipient].advanceCollected = 0;
+            advanceRequests[recipient].repaid = true;
+            emit AdvanceRepaid(recipient, repaidAmount);
+        }
+
+        bool success = token.transferFrom(msg.sender, recipient, actualTransferAmounts[i]);
+        if (!success) revert CustomErrors.TransferFailed();
+
+        emit TokenDisbursed(_tokenAddress, recipient, _netAmounts[i]);
+    }
+
+    if (totalFees > 0) {
+        bool success = token.transferFrom(msg.sender, feeCollector, totalFees);
+        if (!success) revert CustomErrors.TransferFailed();
+    }
+
+    emit BatchDisbursement(_tokenAddress, _recipients.length, totalGrossAmount);
+    return true;
+}
+
 
     /**
      * @dev Returns information about a recipient
@@ -318,6 +366,22 @@ contract OrganizationContract {
 
         Structs.Recipient storage recipient = recipients[_address];
         recipient.name = _name;
+        recipient.updatedAt = block.timestamp;
+    }
+
+    /**
+     * @dev Updates recipient salary amount
+     * @param _address Recipient address
+     * @param _salaryAmount New salary amount
+     */
+    function updateRecipientSalary(address _address, uint256 _salaryAmount) public {
+        _onlyOwner();
+        if (_address == address(0)) revert CustomErrors.InvalidAddress();
+        if (recipients[_address].recipientId == 0) revert CustomErrors.RecipientNotFound();
+        if (_salaryAmount == 0) revert CustomErrors.InvalidAmount();
+
+        Structs.Recipient storage recipient = recipients[_address];
+        recipient.salaryAmount = _salaryAmount;
         recipient.updatedAt = block.timestamp;
     }
 
@@ -353,6 +417,7 @@ contract OrganizationContract {
     function setDefaultAdvanceLimit(uint256 _limit) public {
         _onlyOwner();
         defaultAdvanceLimit = _limit;
+        emit DefaultAdvanceLimitSet(_limit);
     }
 
     /**
@@ -362,8 +427,10 @@ contract OrganizationContract {
      */
     function setRecipientAdvanceLimit(address _recipient, uint256 _limit) public {
         _onlyOwner();
+        if (_recipient == address(0)) revert CustomErrors.InvalidAddress();
         if (recipients[_recipient].recipientId == 0) revert CustomErrors.RecipientNotFound();
         recipientAdvanceLimit[_recipient] = _limit;
+        emit AdvanceLimitSet(_recipient, _limit);
     }
 
     /**
@@ -408,19 +475,22 @@ contract OrganizationContract {
         _onlyOwner();
         if (_recipientAddress == address(0)) revert CustomErrors.InvalidAddress();
         Structs.AdvanceRequest storage request = advanceRequests[_recipientAddress];
+        if (request.recipient == address(0)) revert CustomErrors.InvalidRequest();
         if (request.approved) revert CustomErrors.AlreadyApproved();
         if (recipients[request.recipient].recipientId == 0) revert CustomErrors.RecipientNotFound();
 
         request.approved = true;
         request.approvalDate = block.timestamp;
 
+         // Update the recipient's advance collected
+        recipients[_recipientAddress].advanceCollected += request.amount;
+
         IERC20 token = IERC20(request.tokenAddress);
         if (token.balanceOf(msg.sender) < request.amount) revert CustomErrors.InvalidAmount();
         if (token.allowance(msg.sender, address(this)) < request.amount) revert CustomErrors.InvalidAllowance();
 
-        if (!token.transferFrom(msg.sender, request.recipient, request.amount)) {
-            revert CustomErrors.TransferFailed();
-        }
+        bool success = token.transferFrom(msg.sender, request.recipient, request.amount);
+        if (!success) revert CustomErrors.TransferFailed();
 
         emit AdvanceApproved(_recipientAddress);
         return true;
@@ -458,6 +528,39 @@ contract OrganizationContract {
         }
 
         return result;
+    }
+
+    /**
+     * @dev Returns pending advance requests
+     * @return Array of pending advance requests
+     */
+    function getPendingAdvanceRequests() public view returns (address[] memory) {
+        _onlyOwner();
+        uint256 count = 0;
+        
+        // Count pending requests
+        for (uint256 i = 0; i < recipientCount; i++) {
+            address recipient = address(uint160(i)); // This is just for iteration and needs to be replaced
+            Structs.AdvanceRequest memory request = advanceRequests[recipient];
+            if (request.recipient != address(0) && !request.approved && !request.repaid) {
+                count++;
+            }
+        }
+        
+        address[] memory pendingRequests = new address[](count);
+        uint256 index = 0;
+        
+        // Fill pending requests
+        for (uint256 i = 0; i < recipientCount; i++) {
+            address recipient = address(uint160(i)); // This is just for iteration and needs to be replaced
+            Structs.AdvanceRequest memory request = advanceRequests[recipient];
+            if (request.recipient != address(0) && !request.approved && !request.repaid) {
+                pendingRequests[index] = request.recipient;
+                index++;
+            }
+        }
+        
+        return pendingRequests;
     }
 
     /**
