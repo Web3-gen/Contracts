@@ -1,66 +1,134 @@
-## Foundry
+# HR_Project_Web3Bridge
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+This repository contains the smart contracts and related scripts for the HR_Project_Web3Bridge, a blockchain-based solution for managing organizations and contracts. The project leverages [Foundry](https://book.getfoundry.sh/) for development, testing, and deployment of Solidity smart contracts.
 
-Foundry consists of:
+## Deployed Contracts (Sepolia Network)
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+- **OrganizationFactory**: [0xe1db6db5f799feeb969088ac1ec7072b295a55a0](https://sepolia-blockscout.lisk.com/address/0xe1db6db5f799feeb969088ac1ec7072b295a55a0)
+- **OrganizationContract**: [0xe90d6a043c34ab9c03f541e99c21dbe48d14e92b](https://sepolia-blockscout.lisk.com/address/0xe90d6a043c34ab9c03f541e99c21dbe48d14e92b)
 
-## Documentation
+## Table of Contents
 
-https://book.getfoundry.sh/
+- [Overview](#overview)
+- [Project Structure](#project-structure)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Smart Contracts](#smart-contracts)
+- [Testing](#testing)
+- [Deployment](#deployment)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Overview
+
+HR_Project_Web3Bridge is a decentralized solution that enables organizations to manage their operations on the blockchain. The project consists of multiple smart contracts that handle organization creation, management, and token operations.
+
+### Key Features
+
+- Organization creation and management
+- Token management system
+- Secure contract interactions
+- Full test coverage
+- Foundry-based development environment
+
+## Project Structure
+
+```
+contracts/
+├── src/
+│   ├── contracts/           # Main contract implementations
+│   ├── interfaces/          # Contract interfaces
+│   └── libraries/           # Shared libraries and utilities
+├── script/                  # Deployment scripts
+├── test/                   # Contract test files
+└── lib/                    # Dependencies and libraries
+```
+
+## Installation
+
+1. **Prerequisites**
+   - [Foundry](https://book.getfoundry.sh/getting-started/installation.html)
+   - Git
+
+2. **Clone the Repository**
+   ```bash
+   git clone <repository-url>
+   cd HR_Project_Web3Bridge/contracts
+   ```
+
+3. **Install Dependencies**
+   ```bash
+   forge install
+   ```
 
 ## Usage
 
-### Build
-
-```shell
-$ forge build
+### Compiling Contracts
+```bash
+forge build
 ```
 
-### Test
-
-```shell
-$ forge test
+### Running Tests
+```bash
+forge test
 ```
 
-### Format
-
-```shell
-$ forge fmt
+### Deploying Contracts
+```bash
+forge script script/deploy.s.sol --rpc-url <your-rpc-url> --private-key <your-private-key> --broadcast
 ```
 
-### Gas Snapshots
+## Smart Contracts
 
-```shell
-$ forge snapshot
+### OrganizationFactory
+- Main contract for creating and managing organizations
+- Handles organization deployment and registration
+- Maintains organization registry
+
+### OrganizationContract
+- Implements organization-specific logic
+- Manages organization members and roles
+- Handles organization-specific operations
+
+### Additional Components
+- **IERC20.sol**: Standard ERC20 interface implementation
+- **Tokens.sol**: Token management functionality
+- **errors.sol**: Custom error definitions
+- **structs.sol**: Shared data structures
+
+## Testing
+
+The project includes comprehensive tests for all smart contracts. Test files are located in the `test/` directory:
+
+- OrganizationContract.t.sol
+- OrganizationFactory.t.sol
+- Token.t.sol
+
+To run specific tests:
+```bash
+forge test --match-contract OrganizationFactoryTest
 ```
 
-### Anvil
+## Deployment
 
-```shell
-$ anvil
+The project uses Foundry's deployment system through scripts in the `script/` directory. The main deployment script is `deploy.s.sol`.
+
+### Deployment Commands
+```bash
+# Deploy to local network
+forge script script/deploy.s.sol --fork-url http://localhost:8545 --broadcast
+
+# Deploy to testnet
+forge script script/deploy.s.sol --rpc-url <testnet-rpc> --private-key <pk> --broadcast --verify
 ```
 
-### Deploy
+### Verification Commands
+Verification commands can be found in `verify_command.txt`
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
+## Contributing
 
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request

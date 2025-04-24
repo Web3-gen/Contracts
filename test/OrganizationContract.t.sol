@@ -270,7 +270,7 @@ contract OrganizationContractTest is Test {
         );
         assertEq(
             token.balanceOf(feeCollector) - initialFeeCollectorBalance,
-            totalFees -1 ,
+            totalFees - 1,
             "Fee collector should receive correct fee"
         );
     }

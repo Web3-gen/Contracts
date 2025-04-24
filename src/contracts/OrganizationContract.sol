@@ -59,11 +59,9 @@ contract OrganizationContract {
 
         _;
 
-        // By storing the original value once again, a refund is triggered 
+        // By storing the original value once again, a refund is triggered
         _status = _NOT_ENTERED;
     }
-
-
 
     constructor(
         address _owner,
@@ -182,9 +180,10 @@ contract OrganizationContract {
      * @param _netAmount Net amount to calculate gross amount for
      * @return Gross amount
      */
+
     function calculateGrossAmount(uint256 _netAmount) public view returns (uint256) {
-    return (_netAmount * 10000) / (10000 - transactionFee);
-}
+        return (_netAmount * 10000) / (10000 - transactionFee);
+    }
 
     /**
      * @dev Disburses tokens to a single recipient
@@ -194,62 +193,61 @@ contract OrganizationContract {
      * @return True if successful
      */
     function disburseToken(address _tokenAddress, address _recipient, uint256 _netAmount)
-    public
-    nonReentrant
-    returns (bool)
-{
-    _onlyOwner();
-    if (_tokenAddress == address(0)) revert CustomErrors.InvalidAddress();
-    if (_recipient == address(0)) revert CustomErrors.InvalidAddress();
-    if (_netAmount == 0) revert CustomErrors.InvalidAmount();
-    if (!isTokenSupported(_tokenAddress)) revert CustomErrors.TokenNotSupported();
-    Structs.Recipient storage recipient = recipients[_recipient];
-    if (recipient.recipientId == 0) revert CustomErrors.RecipientNotFound();
+        public
+        nonReentrant
+        returns (bool)
+    {
+        _onlyOwner();
+        if (_tokenAddress == address(0)) revert CustomErrors.InvalidAddress();
+        if (_recipient == address(0)) revert CustomErrors.InvalidAddress();
+        if (_netAmount == 0) revert CustomErrors.InvalidAmount();
+        if (!isTokenSupported(_tokenAddress)) revert CustomErrors.TokenNotSupported();
+        Structs.Recipient storage recipient = recipients[_recipient];
+        if (recipient.recipientId == 0) revert CustomErrors.RecipientNotFound();
 
-    uint256 grossAmount = calculateGrossAmount(_netAmount);
-    uint256 fee = calculateFee(grossAmount);
-    uint256 amountAfterFee = grossAmount - fee;
+        uint256 grossAmount = calculateGrossAmount(_netAmount);
+        uint256 fee = calculateFee(grossAmount);
+        uint256 amountAfterFee = grossAmount - fee;
 
-    require(amountAfterFee == _netAmount, "Mismatch in fee calculation"); // optional safety
+        require(amountAfterFee == _netAmount, "Mismatch in fee calculation"); // optional safety
 
-    // Log payment
-    Structs.Payment memory payment = Structs.Payment({
-        recipient: _recipient,
-        tokenAddress: _tokenAddress,
-        amount: amountAfterFee,
-        timestamp: block.timestamp
-    });
-    paymentHistory.push(payment);
+        // Log payment
+        Structs.Payment memory payment = Structs.Payment({
+            recipient: _recipient,
+            tokenAddress: _tokenAddress,
+            amount: amountAfterFee,
+            timestamp: block.timestamp
+        });
+        paymentHistory.push(payment);
 
-    IERC20 token = IERC20(_tokenAddress);
-    if (token.balanceOf(msg.sender) < grossAmount) revert CustomErrors.InvalidAmount();
-    if (token.allowance(msg.sender, address(this)) < grossAmount) revert CustomErrors.InvalidAllowance();
+        IERC20 token = IERC20(_tokenAddress);
+        if (token.balanceOf(msg.sender) < grossAmount) revert CustomErrors.InvalidAmount();
+        if (token.allowance(msg.sender, address(this)) < grossAmount) revert CustomErrors.InvalidAllowance();
 
-    uint256 transferAmount = _netAmount;
+        uint256 transferAmount = _netAmount;
 
-    if (recipient.advanceCollected > 0) {
-        if (_netAmount <= recipient.advanceCollected) {
-            revert CustomErrors.InvalidAmount();
+        if (recipient.advanceCollected > 0) {
+            if (_netAmount <= recipient.advanceCollected) {
+                revert CustomErrors.InvalidAmount();
+            }
+            transferAmount = _netAmount - recipient.advanceCollected;
+            uint256 repaidAmount = recipient.advanceCollected;
+            recipient.advanceCollected = 0;
+            delete advanceRequests[_recipient];
+            emit AdvanceRepaid(_recipient, repaidAmount);
         }
-        transferAmount = _netAmount - recipient.advanceCollected;
-        uint256 repaidAmount = recipient.advanceCollected;
-        recipient.advanceCollected = 0;
-        delete advanceRequests[_recipient];
-        emit AdvanceRepaid(_recipient, repaidAmount);
-    }
 
-    bool success = token.transferFrom(msg.sender, _recipient, transferAmount);
-    if (!success) revert CustomErrors.TransferFailed();
-
-    if (fee > 0) {
-        success = token.transferFrom(msg.sender, feeCollector, fee);
+        bool success = token.transferFrom(msg.sender, _recipient, transferAmount);
         if (!success) revert CustomErrors.TransferFailed();
+
+        if (fee > 0) {
+            success = token.transferFrom(msg.sender, feeCollector, fee);
+            if (!success) revert CustomErrors.TransferFailed();
+        }
+
+        emit TokenDisbursed(_tokenAddress, _recipient, _netAmount);
+        return true;
     }
-
-    emit TokenDisbursed(_tokenAddress, _recipient, _netAmount);
-    return true;
-}
-
 
     /**
      * @dev Disburses tokens to multiple recipients
@@ -258,89 +256,84 @@ contract OrganizationContract {
      * @param _netAmounts Array of amounts to disburse
      * @return True if successful
      */
-    function batchDisburseToken(
-    address _tokenAddress,
-    address[] memory _recipients,
-    uint256[] memory _netAmounts
-)
-    public
-    nonReentrant
-    returns (bool)
-{
-    _onlyOwner();
-    if (_recipients.length != _netAmounts.length) revert CustomErrors.InvalidInput();
-    if (_tokenAddress == address(0)) revert CustomErrors.InvalidAddress();
-    if (!isTokenSupported(_tokenAddress)) revert CustomErrors.TokenNotSupported();
+    function batchDisburseToken(address _tokenAddress, address[] memory _recipients, uint256[] memory _netAmounts)
+        public
+        nonReentrant
+        returns (bool)
+    {
+        _onlyOwner();
+        if (_recipients.length != _netAmounts.length) revert CustomErrors.InvalidInput();
+        if (_tokenAddress == address(0)) revert CustomErrors.InvalidAddress();
+        if (!isTokenSupported(_tokenAddress)) revert CustomErrors.TokenNotSupported();
 
-    uint256 totalGrossAmount = 0;
-    uint256 totalFees = 0;
-    uint256[] memory actualTransferAmounts = new uint256[](_recipients.length);
+        uint256 totalGrossAmount = 0;
+        uint256 totalFees = 0;
+        uint256[] memory actualTransferAmounts = new uint256[](_recipients.length);
 
-    for (uint256 i = 0; i < _recipients.length; i++) {
-        if (_netAmounts[i] == 0) revert CustomErrors.InvalidAmount();
-        if (_recipients[i] == address(0)) revert CustomErrors.InvalidAddress();
-        Structs.Recipient storage recipient = recipients[_recipients[i]];
-        if (recipient.recipientId == 0) revert CustomErrors.RecipientNotFound();
+        for (uint256 i = 0; i < _recipients.length; i++) {
+            if (_netAmounts[i] == 0) revert CustomErrors.InvalidAmount();
+            if (_recipients[i] == address(0)) revert CustomErrors.InvalidAddress();
+            Structs.Recipient storage recipient = recipients[_recipients[i]];
+            if (recipient.recipientId == 0) revert CustomErrors.RecipientNotFound();
 
-        uint256 grossAmount = calculateGrossAmount(_netAmounts[i]);
-        uint256 fee = calculateFee(grossAmount);
-        uint256 amountAfterFee = grossAmount - fee;
+            uint256 grossAmount = calculateGrossAmount(_netAmounts[i]);
+            uint256 fee = calculateFee(grossAmount);
+            uint256 amountAfterFee = grossAmount - fee;
 
-        require(amountAfterFee == _netAmounts[i], "Fee miscalculation");
+            require(amountAfterFee == _netAmounts[i], "Fee miscalculation");
 
-        totalGrossAmount += grossAmount;
-        totalFees += fee;
+            totalGrossAmount += grossAmount;
+            totalFees += fee;
 
-        // Check if this payment would cover any advance
-        if (recipient.advanceCollected > 0) {
-            if (_netAmounts[i] <= recipient.advanceCollected) {
-                revert CustomErrors.InvalidAmount();
+            // Check if this payment would cover any advance
+            if (recipient.advanceCollected > 0) {
+                if (_netAmounts[i] <= recipient.advanceCollected) {
+                    revert CustomErrors.InvalidAmount();
+                }
+                actualTransferAmounts[i] = _netAmounts[i] - recipient.advanceCollected;
+            } else {
+                actualTransferAmounts[i] = _netAmounts[i];
             }
-            actualTransferAmounts[i] = _netAmounts[i] - recipient.advanceCollected;
-        } else {
-            actualTransferAmounts[i] = _netAmounts[i];
+
+            Structs.Payment memory payment = Structs.Payment({
+                recipient: _recipients[i],
+                tokenAddress: _tokenAddress,
+                amount: _netAmounts[i],
+                timestamp: block.timestamp
+            });
+
+            paymentHistory.push(payment);
         }
 
-        Structs.Payment memory payment = Structs.Payment({
-            recipient: _recipients[i],
-            tokenAddress: _tokenAddress,
-            amount: _netAmounts[i],
-            timestamp: block.timestamp
-        });
+        IERC20 token = IERC20(_tokenAddress);
+        if (token.balanceOf(msg.sender) < totalGrossAmount) revert CustomErrors.InvalidAmount();
+        if (token.allowance(msg.sender, address(this)) < totalGrossAmount) revert CustomErrors.InvalidAllowance();
 
-        paymentHistory.push(payment);
-    }
+        for (uint256 i = 0; i < _recipients.length; i++) {
+            address recipient = _recipients[i];
 
-    IERC20 token = IERC20(_tokenAddress);
-    if (token.balanceOf(msg.sender) < totalGrossAmount) revert CustomErrors.InvalidAmount();
-    if (token.allowance(msg.sender, address(this)) < totalGrossAmount) revert CustomErrors.InvalidAllowance();
+            // Repay advance if needed
+            if (recipients[recipient].advanceCollected > 0) {
+                uint256 repaidAmount = recipients[recipient].advanceCollected;
+                recipients[recipient].advanceCollected = 0;
+                advanceRequests[recipient].repaid = true;
+                emit AdvanceRepaid(recipient, repaidAmount);
+            }
 
-    for (uint256 i = 0; i < _recipients.length; i++) {
-        address recipient = _recipients[i];
+            bool success = token.transferFrom(msg.sender, recipient, actualTransferAmounts[i]);
+            if (!success) revert CustomErrors.TransferFailed();
 
-        // Repay advance if needed
-        if (recipients[recipient].advanceCollected > 0) {
-            uint256 repaidAmount = recipients[recipient].advanceCollected;
-            recipients[recipient].advanceCollected = 0;
-            advanceRequests[recipient].repaid = true;
-            emit AdvanceRepaid(recipient, repaidAmount);
+            emit TokenDisbursed(_tokenAddress, recipient, _netAmounts[i]);
         }
 
-        bool success = token.transferFrom(msg.sender, recipient, actualTransferAmounts[i]);
-        if (!success) revert CustomErrors.TransferFailed();
+        if (totalFees > 0) {
+            bool success = token.transferFrom(msg.sender, feeCollector, totalFees);
+            if (!success) revert CustomErrors.TransferFailed();
+        }
 
-        emit TokenDisbursed(_tokenAddress, recipient, _netAmounts[i]);
+        emit BatchDisbursement(_tokenAddress, _recipients.length, totalGrossAmount);
+        return true;
     }
-
-    if (totalFees > 0) {
-        bool success = token.transferFrom(msg.sender, feeCollector, totalFees);
-        if (!success) revert CustomErrors.TransferFailed();
-    }
-
-    emit BatchDisbursement(_tokenAddress, _recipients.length, totalGrossAmount);
-    return true;
-}
-
 
     /**
      * @dev Returns information about a recipient
@@ -482,7 +475,7 @@ contract OrganizationContract {
         request.approved = true;
         request.approvalDate = block.timestamp;
 
-         // Update the recipient's advance collected
+        // Update the recipient's advance collected
         recipients[_recipientAddress].advanceCollected += request.amount;
 
         IERC20 token = IERC20(request.tokenAddress);
@@ -537,7 +530,7 @@ contract OrganizationContract {
     function getPendingAdvanceRequests() public view returns (address[] memory) {
         _onlyOwner();
         uint256 count = 0;
-        
+
         // Count pending requests
         for (uint256 i = 0; i < recipientCount; i++) {
             address recipient = address(uint160(i)); // This is just for iteration and needs to be replaced
@@ -546,10 +539,10 @@ contract OrganizationContract {
                 count++;
             }
         }
-        
+
         address[] memory pendingRequests = new address[](count);
         uint256 index = 0;
-        
+
         // Fill pending requests
         for (uint256 i = 0; i < recipientCount; i++) {
             address recipient = address(uint160(i)); // This is just for iteration and needs to be replaced
@@ -559,7 +552,7 @@ contract OrganizationContract {
                 index++;
             }
         }
-        
+
         return pendingRequests;
     }
 
