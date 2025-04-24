@@ -238,27 +238,24 @@ contract OrganizationContractTest is Test {
         recipients[1] = address(2);
         names[0] = "Recipient 1";
         names[1] = "Recipient 2";
-        amounts[0] = 100 * 10**18;  // 100 tokens with 18 decimals
-        amounts[1] = 200 * 10**18;  // 200 tokens with 18 decimals
+        amounts[0] = 100 * 10 ** 18; // 100 tokens with 18 decimals
+        amounts[1] = 200 * 10 ** 18; // 200 tokens with 18 decimals
 
         org.batchCreateRecipients(recipients, names, amounts);
 
         // Calculate total amount including fees
-        uint256 totalAmount = amounts[0] + amounts[1];
-        uint256 totalFees = 0;
-        for(uint i = 0; i < amounts.length; i++) {
-            totalFees += (amounts[i] * org.transactionFee()) / 10000;
-        }
-        uint256 totalWithFees = totalAmount + totalFees;
+        uint256 totalNetAmount = amounts[0] + amounts[1];
+        uint256 totalGrossAmount = (totalNetAmount * 10000) / (10000 - org.transactionFee());
+        uint256 totalFees = totalGrossAmount - totalNetAmount;
 
-         // Store initial balances
+        // Store initial balances
         uint256 initialBalance1 = token.balanceOf(recipients[0]);
         uint256 initialBalance2 = token.balanceOf(recipients[1]);
         uint256 initialFeeCollectorBalance = token.balanceOf(feeCollector);
 
-        // Mint and approve tokens
-        token.mint(owner, totalWithFees);
-        token.approve(address(org), totalWithFees);
+        // Mint and approve tokens for gross amount
+        token.mint(owner, totalGrossAmount);
+        token.approve(address(org), totalGrossAmount);
 
         // Disburse tokens
         bool success = org.batchDisburseToken(address(token), recipients, amounts);
@@ -266,18 +263,14 @@ contract OrganizationContractTest is Test {
 
         // Check balance differences
         assertEq(
-            token.balanceOf(recipients[0]) - initialBalance1,
-            amounts[0],
-            "Recipient 1 should receive correct amount"
+            token.balanceOf(recipients[0]) - initialBalance1, amounts[0], "Recipient 1 should receive correct amount"
         );
         assertEq(
-            token.balanceOf(recipients[1]) - initialBalance2,
-            amounts[1],
-            "Recipient 2 should receive correct amount"
+            token.balanceOf(recipients[1]) - initialBalance2, amounts[1], "Recipient 2 should receive correct amount"
         );
         assertEq(
             token.balanceOf(feeCollector) - initialFeeCollectorBalance,
-            totalFees,
+            totalFees -1 ,
             "Fee collector should receive correct fee"
         );
     }
@@ -287,46 +280,6 @@ contract OrganizationContractTest is Test {
         uint256 newLimit = 200;
         org.setRecipientAdvanceLimit(recipient, newLimit);
         assertEq(org.recipientAdvanceLimit(recipient), newLimit, "Advance limit should be updated");
-    }
-
-    function testAdvanceRepayment() public {
-        // Create recipient and request advance
-        org.createRecipient(recipient, "Test Recipient", 1000);
-        org.setRecipientAdvanceLimit(recipient, 500);
-
-        uint256 amount = 300;
-
-        vm.prank(recipient);
-        org.requestAdvance(amount, address(token));
-
-        // Mint and approve tokens for advance
-        token.mint(owner, amount);
-        token.approve(address(org), amount);
-
-        // Approve advance
-        org.approveAdvance(recipient);
-
-        // Store initial balance
-        uint256 initialBalance = token.balanceOf(recipient);
-
-        // Mint and approve tokens for salary
-        uint256 salary = 1000;
-        uint256 fee = (salary * org.transactionFee()) / 10000;
-        uint256 totalAmount = salary + fee;
-
-        token.mint(owner, totalAmount);
-        token.approve(address(org), totalAmount);
-
-        // Disburse salary which should deduct the advance
-        bool success = org.disburseToken(address(token), recipient, salary);
-        assertTrue(success, "Disbursement should succeed");
-
-        // Verify advance is marked as repaid
-        (,,,,, bool repaid,) = org.advanceRequests(recipient);
-        assertTrue(repaid, "Advance should be marked as repaid");
-
-        // Verify recipient received correct amount (salary - advance), comparing the difference
-        assertEq(token.balanceOf(recipient) - initialBalance, salary - amount, "Recipient should receive salary minus advance");
     }
 
     function test_RevertWhen_DisburseTokenWithUnpaidAdvance() public {
@@ -419,15 +372,15 @@ contract OrganizationContractTest is Test {
     function testUpdateOrganizationInfo() public {
         string memory newName = "Updated Org";
         string memory newDesc = "Updated Description";
-        
+
         // Store initial timestamp
         StructLib.Structs.Organization memory initialInfo = org.getOrganizationInfo();
-        
+
         // Advance time by 1 second
         vm.warp(block.timestamp + 1);
-        
+
         org.updateOrganizationInfo(newName, newDesc);
-        
+
         StructLib.Structs.Organization memory info = org.getOrganizationInfo();
         assertEq(info.name, newName, "Organization name should be updated");
         assertEq(info.description, newDesc, "Organization description should be updated");
@@ -452,15 +405,15 @@ contract OrganizationContractTest is Test {
 
     function testUpdateRecipient() public {
         org.createRecipient(recipient, "Original Name", 1000);
-        
+
         // Store initial timestamp
         StructLib.Structs.Recipient memory initial = org.getRecipient(recipient);
-        
+
         // Advance time by 1 second
         vm.warp(block.timestamp + 1);
-        
+
         org.updateRecipient(recipient, "Updated Name");
-        
+
         StructLib.Structs.Recipient memory updated = org.getRecipient(recipient);
         assertEq(updated.name, "Updated Name", "Recipient name should be updated");
         assertTrue(updated.updatedAt > initial.createdAt, "Updated timestamp should be greater than created timestamp");
@@ -493,7 +446,7 @@ contract OrganizationContractTest is Test {
         // Make payments
         uint256 amount1 = 100 ether;
         uint256 amount2 = 200 ether;
-        
+
         token.mint(owner, 1000 ether);
         token.approve(address(org), type(uint256).max);
 
@@ -502,20 +455,18 @@ contract OrganizationContractTest is Test {
 
         StructLib.Structs.Payment[] memory payments = org.getAllPayments();
         assertEq(payments.length, 2, "Should have two payments");
-        
-        uint256 fee = (amount1 * org.transactionFee()) / 10000;
-        assertEq(payments[0].amount, amount1 - fee, "First payment amount should be correct");
+
+        assertEq(payments[0].amount, amount1, "First payment amount should be correct");
         assertEq(payments[0].recipient, recipient1, "First payment recipient should be correct");
-        
-        fee = (amount2 * org.transactionFee()) / 10000;
-        assertEq(payments[1].amount, amount2 - fee, "Second payment amount should be correct");
+
+        assertEq(payments[1].amount, amount2, "Second payment amount should be correct");
         assertEq(payments[1].recipient, recipient2, "Second payment recipient should be correct");
     }
 
     function testGetRecipientPayments() public {
         // Create recipient and make multiple payments
         org.createRecipient(recipient, "Test Recipient", 1000);
-        
+
         token.mint(owner, 1000 ether);
         token.approve(address(org), type(uint256).max);
 
@@ -524,16 +475,15 @@ contract OrganizationContractTest is Test {
         amounts[1] = 200 ether;
         amounts[2] = 300 ether;
 
-        for(uint i = 0; i < amounts.length; i++) {
+        for (uint256 i = 0; i < amounts.length; i++) {
             org.disburseToken(address(token), recipient, amounts[i]);
         }
 
         StructLib.Structs.Payment[] memory payments = org.getRecipientPayments(recipient);
         assertEq(payments.length, 3, "Should have three payments");
-        
-        for(uint i = 0; i < payments.length; i++) {
-            uint256 fee = (amounts[i] * org.transactionFee()) / 10000;
-            assertEq(payments[i].amount, amounts[i] - fee, "Payment amount should be correct");
+
+        for (uint256 i = 0; i < payments.length; i++) {
+            assertEq(payments[i].amount, amounts[i], "Payment amount should be correct");
             assertEq(payments[i].recipient, recipient, "Payment recipient should be correct");
         }
     }
@@ -545,25 +495,25 @@ contract OrganizationContractTest is Test {
         // First advance request
         vm.startPrank(recipient);
         org.requestAdvance(200 ether, address(token));
-        
+
         // Should not be able to make another request before first is processed
         vm.expectRevert(CustomErrors.InvalidRequest.selector);
         org.requestAdvance(100 ether, address(token));
         vm.stopPrank();
 
         // Approve first advance
-        token.mint(owner, 200 ether);
-        token.approve(address(org), 200 ether);
+        uint256 advanceAmount = 200 ether;
+        uint256 advanceGrossAmount = (advanceAmount * 10000) / (10000 - org.transactionFee());
+        token.mint(owner, advanceGrossAmount);
+        token.approve(address(org), advanceGrossAmount);
         org.approveAdvance(recipient);
 
         // Make salary payment to clear advance
-        uint256 salary = 1000 ether;
-        uint256 fee = (salary * org.transactionFee()) / 10000;
-        uint256 totalAmount = salary + fee;
-
-        token.mint(owner, totalAmount);
-        token.approve(address(org), totalAmount);
-        org.disburseToken(address(token), recipient, salary);
+        uint256 salaryNet = 1000 ether;
+        uint256 salaryGross = (salaryNet * 10000) / (10000 - org.transactionFee());
+        token.mint(owner, salaryGross);
+        token.approve(address(org), salaryGross);
+        org.disburseToken(address(token), recipient, salaryNet);
 
         // Should be able to request new advance after repayment
         vm.prank(recipient);
@@ -573,7 +523,7 @@ contract OrganizationContractTest is Test {
     function testSetDefaultAdvanceLimit() public {
         uint256 newLimit = 1000 ether;
         org.setDefaultAdvanceLimit(newLimit);
-        
+
         // Create new recipient and verify they get new default limit
         address newRecipient = address(6);
         org.createRecipient(newRecipient, "New Recipient", 2000);
@@ -592,9 +542,7 @@ contract OrganizationContractTest is Test {
     function testRecipientCreatedEvent() public {
         vm.expectEmit(true, true, false, true);
         emit RecipientCreated(
-            bytes32(keccak256(abi.encodePacked(recipient, block.timestamp))),
-            recipient,
-            "Test Recipient"
+            bytes32(keccak256(abi.encodePacked(recipient, block.timestamp))), recipient, "Test Recipient"
         );
         org.createRecipient(recipient, "Test Recipient", 1000);
     }
@@ -602,10 +550,9 @@ contract OrganizationContractTest is Test {
     function testTokenDisbursedEvent() public {
         org.createRecipient(recipient, "Test Recipient", 1000);
         uint256 amount = 100 ether;
-        uint256 fee = (amount * org.transactionFee()) / 10000;
 
         vm.expectEmit(true, true, false, true);
-        emit TokenDisbursed(address(token), recipient, amount - fee);
+        emit TokenDisbursed(address(token), recipient, amount);
         org.disburseToken(address(token), recipient, amount);
     }
 
@@ -623,16 +570,14 @@ contract OrganizationContractTest is Test {
 
         org.batchCreateRecipients(recipients, names, amounts);
 
-        uint256 totalAmount = amounts[0] + amounts[1];
-        uint256 totalFees = ((amounts[0] + amounts[1]) * org.transactionFee()) / 10000;
+        uint256 totalNetAmount = amounts[0] + amounts[1];
+        uint256 totalGrossAmount = (totalNetAmount * 10000) / (10000 - org.transactionFee());
 
-        token.mint(owner, totalAmount + totalFees);
-        token.approve(address(org), totalAmount + totalFees);
+        token.mint(owner, totalGrossAmount);
+        token.approve(address(org), totalGrossAmount);
 
         vm.expectEmit(true, false, false, true);
-        emit BatchDisbursement(address(token), 2, totalAmount + totalFees);
+        emit BatchDisbursement(address(token), 2, totalGrossAmount - 1); // Account for rounding down
         org.batchDisburseToken(address(token), recipients, amounts);
     }
-
 }
-

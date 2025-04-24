@@ -5,6 +5,9 @@ library CustomErrors {
     error InvalidAddress();
     error InvalidFee();
     error ReentrantCall();
+    error InvalidTokenName();
+    error InvalidTokenAddress();
+    error TokenAlreadySupported();
     error InvalidToken();
     error InvalidOrganization();
     error InvalidRecipient();

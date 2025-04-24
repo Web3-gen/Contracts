@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import "forge-std/Test.sol";
 import "../src/contracts/Tokens.sol";
-
+import "../src/libraries/errors.sol";
 contract TokenTest is Test {
     TokenRegistry public tokenRegistry;
     address public owner;
@@ -42,12 +42,12 @@ contract TokenTest is Test {
     }
 
     function test_RevertWhen_AddTokenWithEmptyName() public {
-        vm.expectRevert("Token name is required");
+        vm.expectRevert(CustomErrors.InvalidTokenName.selector);
         tokenRegistry.addToken("", token1);
     }
 
     function test_RevertWhen_AddTokenWithZeroAddress() public {
-        vm.expectRevert("Invalid token address");
+        vm.expectRevert(CustomErrors.InvalidTokenAddress.selector);
         tokenRegistry.addToken("Test Token", address(0));
     }
 
@@ -55,27 +55,27 @@ contract TokenTest is Test {
         string memory tokenName = "Test Token";
         tokenRegistry.addToken(tokenName, token1);
 
-        vm.expectRevert("Token already exists");
+        vm.expectRevert(CustomErrors.TokenAlreadySupported.selector);
         tokenRegistry.addToken(tokenName, token1);
     }
 
     function test_RevertWhen_RemoveNonExistentToken() public {
-        vm.expectRevert("Token does not exist");
+        vm.expectRevert(CustomErrors.InvalidToken.selector);
         tokenRegistry.removeToken(token1);
     }
 
     function test_RevertWhen_RemoveTokenWithZeroAddress() public {
-        vm.expectRevert("Invalid token address");
+        vm.expectRevert(CustomErrors.InvalidTokenAddress.selector);
         tokenRegistry.removeToken(address(0));
     }
 
     function test_RevertWhen_GetTokenNameWithZeroAddress() public {
-        vm.expectRevert("Invalid token address");
+        vm.expectRevert(CustomErrors.InvalidTokenAddress.selector);
         tokenRegistry.getTokenName(address(0));
     }
 
     function test_RevertWhen_IsTokenSupportedWithZeroAddress() public {
-        vm.expectRevert("Invalid token address");
+        vm.expectRevert(CustomErrors.InvalidTokenAddress.selector);
         tokenRegistry.isTokenSupported(address(0));
     }
 }
