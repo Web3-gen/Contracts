@@ -1,1 +1,5 @@
-forge script script/deploy.s.sol:OrganizationScript --rpc-url https://rpc.sepolia-api.lisk.com --verify --verifier blockscout --verifier-url https://sepolia-blockscout.lisk.com/api --etherscan-api-key 123 \ --account PRIVATE_KEY --resume
+forge verify-contract --chain-id 4202 \
+  --verifier-url https://sepolia-blockscout.lisk.com/api \
+  --verifier blockscout \
+  0xE1db6Db5f799FEEb969088aC1eC7072b295a55A0 \
+  src/contracts/OrganizationFactory.sol:OrganizationFactory
