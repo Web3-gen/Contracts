@@ -2,10 +2,15 @@
 
 This repository contains the smart contracts and related scripts for the HR_Project_Web3Bridge, a blockchain-based solution for managing organizations and contracts. The project leverages [Foundry](https://book.getfoundry.sh/) for development, testing, and deployment of Solidity smart contracts.
 
-## Deployed Contracts (Sepolia Network)
+## Deployed Contracts (Lisk Sepolia Network)
 
 - **OrganizationFactory**: [0xe1db6db5f799feeb969088ac1ec7072b295a55a0](https://sepolia-blockscout.lisk.com/address/0xe1db6db5f799feeb969088ac1ec7072b295a55a0)
 - **OrganizationContract**: [0xe90d6a043c34ab9c03f541e99c21dbe48d14e92b](https://sepolia-blockscout.lisk.com/address/0xe90d6a043c34ab9c03f541e99c21dbe48d14e92b)
+
+## Deployed Contracts (Base Sepolia Network)
+
+- **OrganizationFactory**: [0x3677f7827760016702d034837bd2fb8e6ba618dd](https://sepolia.basescan.org/address/0x3677f7827760016702d034837bd2fb8e6ba618dd)
+- **OrganizationContract**: [0xab9929600ad5026431ca61e742d5a224f205fe23](https://sepolia.basescan.org/address/0xab9929600ad5026431ca61e742d5a224f205fe23)
 
 ## Table of Contents
 
