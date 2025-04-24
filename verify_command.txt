@@ -1,0 +1,1 @@
+forge script script/deploy.s.sol:OrganizationScript --rpc-url https://rpc.sepolia-api.lisk.com --verify --verifier blockscout --verifier-url https://sepolia-blockscout.lisk.com/api --etherscan-api-key 123 \ --account PRIVATE_KEY --resume
