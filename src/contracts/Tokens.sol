@@ -16,7 +16,7 @@ contract TokenRegistry {
     event TokenRemoved(address indexed tokenAddress);
 
     function _onlyOwner() internal view {
-        if(msg.sender != owner) revert CustomErrors.UnauthorizedAccess();
+        if (msg.sender != owner) revert CustomErrors.UnauthorizedAccess();
     }
 
     constructor() {
@@ -46,7 +46,7 @@ contract TokenRegistry {
      * @return Token name
      */
     function getTokenName(address _tokenAddress) public view returns (string memory) {
-        if(_tokenAddress == address(0)) revert CustomErrors.InvalidTokenAddress();
+        if (_tokenAddress == address(0)) revert CustomErrors.InvalidTokenAddress();
         return supportedTokens[_tokenAddress];
     }
 
@@ -56,8 +56,8 @@ contract TokenRegistry {
      */
     function removeToken(address _tokenAddress) public virtual {
         _onlyOwner();
-        if(_tokenAddress == address(0)) revert CustomErrors.InvalidTokenAddress();
-        if(bytes(supportedTokens[_tokenAddress]).length == 0) revert CustomErrors.InvalidToken();
+        if (_tokenAddress == address(0)) revert CustomErrors.InvalidTokenAddress();
+        if (bytes(supportedTokens[_tokenAddress]).length == 0) revert CustomErrors.InvalidToken();
 
         delete supportedTokens[_tokenAddress];
         supportedTokensCount--;
@@ -71,7 +71,7 @@ contract TokenRegistry {
      * @return True if the token is supported, false otherwise
      */
     function isTokenSupported(address _tokenAddress) public view returns (bool) {
-        if(_tokenAddress == address(0)) revert CustomErrors.InvalidTokenAddress();
+        if (_tokenAddress == address(0)) revert CustomErrors.InvalidTokenAddress();
         return bytes(supportedTokens[_tokenAddress]).length > 0;
     }
 

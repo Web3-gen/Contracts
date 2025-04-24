@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import "forge-std/Test.sol";
 import "../src/contracts/Tokens.sol";
 import "../src/libraries/errors.sol";
+
 contract TokenTest is Test {
     TokenRegistry public tokenRegistry;
     address public owner;

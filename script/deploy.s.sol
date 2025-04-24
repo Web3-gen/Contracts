@@ -7,7 +7,6 @@ import "forge-std/console.sol";
 import {OrganizationFactory} from "../src/contracts/OrganizationFactory.sol";
 import {OrganizationContract} from "../src/contracts/OrganizationContract.sol";
 
-
 contract OrganizationScript is Script {
     address public organizationAddress;
     address public recipientAddress;
@@ -22,16 +21,12 @@ contract OrganizationScript is Script {
     function run() public {
         vm.startBroadcast();
         // Deploy the OrganizationFactory contract
-        OrganizationFactory organizationFactory = new OrganizationFactory(
-            vm.envAddress("FEE_COLLECTOR_ADDRESS")
-        );
+        OrganizationFactory organizationFactory = new OrganizationFactory(vm.envAddress("FEE_COLLECTOR_ADDRESS"));
         console.log("OrganizationFactory deployed at:", address(organizationFactory));
-    
+
         // Create a new organization
-        organizationAddress = organizationFactory.createOrganization(
-            "My Organization",
-            "This is a description of my organization."
-        );
+        organizationAddress =
+            organizationFactory.createOrganization("My Organization", "This is a description of my organization.");
         console.log("Organization created at:", organizationAddress);
 
         // Add a token to the organization
@@ -39,15 +34,9 @@ contract OrganizationScript is Script {
         console.log("Token added:", tokenAddress);
 
         // Create a new recipient
-        OrganizationContract(organizationAddress).createRecipient(
-            recipientAddress,
-            "John Doe",
-            1000
-        );
+        OrganizationContract(organizationAddress).createRecipient(recipientAddress, "John Doe", 1000);
         console.log("Recipient created at:", recipientAddress);
-        
 
-        
         vm.stopBroadcast();
     }
 }
