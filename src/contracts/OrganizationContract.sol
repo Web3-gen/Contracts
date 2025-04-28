@@ -234,6 +234,7 @@ contract OrganizationContract {
             uint256 repaidAmount = recipient.advanceCollected;
             recipient.advanceCollected = 0;
             delete advanceRequests[_recipient];
+            advanceRequests[_recipient].repaid = true;
             emit AdvanceRepaid(_recipient, repaidAmount);
         }
 
@@ -262,6 +263,7 @@ contract OrganizationContract {
         returns (bool)
     {
         _onlyOwner();
+        if (_recipients.length == 0 || _netAmounts.length == 0) revert CustomErrors.InvalidInput();
         if (_recipients.length != _netAmounts.length) revert CustomErrors.InvalidInput();
         if (_tokenAddress == address(0)) revert CustomErrors.InvalidAddress();
         if (!isTokenSupported(_tokenAddress)) revert CustomErrors.TokenNotSupported();
@@ -360,6 +362,8 @@ contract OrganizationContract {
         Structs.Recipient storage recipient = recipients[_address];
         recipient.name = _name;
         recipient.updatedAt = block.timestamp;
+
+        emit RecipientUpdated(recipient.recipientId, _address, _name);
     }
 
     /**
@@ -409,6 +413,7 @@ contract OrganizationContract {
      */
     function setDefaultAdvanceLimit(uint256 _limit) public {
         _onlyOwner();
+        if (_limit > type(uint256).max / 2) revert CustomErrors.InvalidAmount();
         defaultAdvanceLimit = _limit;
         emit DefaultAdvanceLimitSet(_limit);
     }
@@ -422,6 +427,10 @@ contract OrganizationContract {
         _onlyOwner();
         if (_recipient == address(0)) revert CustomErrors.InvalidAddress();
         if (recipients[_recipient].recipientId == 0) revert CustomErrors.RecipientNotFound();
+        
+        // Check if limit exceeds salary
+        if (_limit >= recipients[_recipient].salaryAmount) revert CustomErrors.InvalidAmount();
+
         recipientAdvanceLimit[_recipient] = _limit;
         emit AdvanceLimitSet(_recipient, _limit);
     }

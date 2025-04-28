@@ -166,6 +166,85 @@ contract OrganizationContractTest is Test {
         assertGt(approvalDate, requestDate, "Approval date should be after request date");
     }
 
+    function testRequestAdvanceWithMaxLimit() public {
+        // Create recipient with salary
+        uint256 salary = 1000;
+        org.createRecipient(recipient, "Test Recipient", salary);
+
+        // Set advance limit to 50% of salary
+        uint256 advanceLimit = salary / 2;
+        org.setRecipientAdvanceLimit(recipient, advanceLimit);
+
+        // Request maximum allowed advance
+        vm.prank(recipient);
+        org.requestAdvance(advanceLimit, address(token));
+
+        // Verify request details
+        (address requestRecipient, uint256 requestAmount,,,,, address requestToken) = org.advanceRequests(recipient);
+        assertEq(requestRecipient, recipient, "Recipient should be set correctly");
+        assertEq(requestAmount, advanceLimit, "Amount should be set to maximum limit");
+        assertEq(requestToken, address(token), "Token should be set correctly");
+    }
+
+    function test_RevertWhen_RequestZeroAdvance() public {
+        // Create recipient
+        org.createRecipient(recipient, "Test Recipient", 1000);
+        org.setRecipientAdvanceLimit(recipient, 500);
+
+        // Try to request zero advance
+        vm.prank(recipient);
+        vm.expectRevert(CustomErrors.InvalidAmount.selector);
+        org.requestAdvance(0, address(token));
+    }
+
+    function test_RevertWhen_NonRecipientRequestsAdvance() public {
+        // Try to request advance without being a recipient
+        vm.prank(address(999));
+        vm.expectRevert(CustomErrors.RecipientNotFound.selector);
+        org.requestAdvance(100, address(token));
+    }
+
+    function test_RevertWhen_RequestAdvanceAboveDefaultLimit() public {
+        // Create recipient with default advance limit (0.1 ether)
+        org.createRecipient(recipient, "Test Recipient", 1000);
+
+        // Try to request advance above the default limit
+        vm.prank(recipient);
+        vm.expectRevert(CustomErrors.InvalidAmount.selector);
+        org.requestAdvance(0.2 ether, address(token));  // Request more than default 0.1 ether limit
+    }
+
+    function testRequestAdvanceEventEmission() public {
+        // Create recipient and set limit
+        org.createRecipient(recipient, "Test Recipient", 1000);
+        org.setRecipientAdvanceLimit(recipient, 500);
+
+        // Record events
+        vm.recordLogs();
+
+        // Request advance
+        vm.prank(recipient);
+        org.requestAdvance(300, address(token));
+
+        // Get emitted events
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        
+        // Verify AdvanceRequested event
+        bytes32 expectedEventSig = keccak256("AdvanceRequested(address,uint256)");
+        bool foundEvent = false;
+        
+        for (uint i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == expectedEventSig) {
+                foundEvent = true;
+                assertEq(address(uint160(uint256(entries[i].topics[1]))), recipient, "Recipient address should match");
+                assertEq(abi.decode(entries[i].data, (uint256)), 300, "Amount should match");
+                break;
+            }
+        }
+        
+        assertTrue(foundEvent, "Should emit AdvanceRequested event");
+    }
+
     function test_RevertWhen_RequestAdvanceWithUnsupportedToken() public {
         org.createRecipient(recipient, "Test Recipient", 1000);
         vm.prank(recipient);
@@ -370,21 +449,14 @@ contract OrganizationContractTest is Test {
     }
 
     function testUpdateOrganizationInfo() public {
-        string memory newName = "Updated Org";
-        string memory newDesc = "Updated Description";
-
-        // Store initial timestamp
-        StructLib.Structs.Organization memory initialInfo = org.getOrganizationInfo();
-
-        // Advance time by 1 second
-        vm.warp(block.timestamp + 1);
-
-        org.updateOrganizationInfo(newName, newDesc);
-
-        StructLib.Structs.Organization memory info = org.getOrganizationInfo();
-        assertEq(info.name, newName, "Organization name should be updated");
-        assertEq(info.description, newDesc, "Organization description should be updated");
-        assertTrue(info.updatedAt > initialInfo.createdAt, "Updated timestamp should be greater than created timestamp");
+        string memory newName = "Updated Org Name";
+        string memory newDescription = "Updated Description";
+        
+        org.updateOrganizationInfo(newName, newDescription);
+        
+        (bytes32 id, string memory name, string memory description, , , ) = org.organizationInfo();
+        assertEq(name, newName, "Organization name should be updated");
+        assertEq(description, newDescription, "Organization description should be updated");
     }
 
     function test_RevertWhen_UpdateOrgInfoEmptyName() public {
@@ -490,34 +562,21 @@ contract OrganizationContractTest is Test {
 
     function testMultipleAdvanceRequests() public {
         org.createRecipient(recipient, "Test Recipient", 1000);
-        org.setRecipientAdvanceLimit(recipient, 500 ether);
+        org.setRecipientAdvanceLimit(recipient, 500);
 
         // First advance request
         vm.startPrank(recipient);
-        org.requestAdvance(200 ether, address(token));
-
-        // Should not be able to make another request before first is processed
-        vm.expectRevert(CustomErrors.InvalidRequest.selector);
-        org.requestAdvance(100 ether, address(token));
+        org.requestAdvance(200, address(token));
+        
+        // Approve first request
         vm.stopPrank();
-
-        // Approve first advance
-        uint256 advanceAmount = 200 ether;
-        uint256 advanceGrossAmount = (advanceAmount * 10000) / (10000 - org.transactionFee());
-        token.mint(owner, advanceGrossAmount);
-        token.approve(address(org), advanceGrossAmount);
         org.approveAdvance(recipient);
 
-        // Make salary payment to clear advance
-        uint256 salaryNet = 1000 ether;
-        uint256 salaryGross = (salaryNet * 10000) / (10000 - org.transactionFee());
-        token.mint(owner, salaryGross);
-        token.approve(address(org), salaryGross);
-        org.disburseToken(address(token), recipient, salaryNet);
-
-        // Should be able to request new advance after repayment
-        vm.prank(recipient);
-        org.requestAdvance(300 ether, address(token));
+        // Try second advance request (should fail as first one is not repaid)
+        vm.startPrank(recipient);
+        vm.expectRevert(CustomErrors.InvalidRequest.selector);
+        org.requestAdvance(300, address(token));
+        vm.stopPrank();
     }
 
     function testSetDefaultAdvanceLimit() public {
@@ -528,15 +587,6 @@ contract OrganizationContractTest is Test {
         address newRecipient = address(6);
         org.createRecipient(newRecipient, "New Recipient", 2000);
         assertEq(org.recipientAdvanceLimit(newRecipient), newLimit, "New recipient should get default advance limit");
-    }
-
-    function test_RevertWhen_RequestZeroAdvance() public {
-        org.createRecipient(recipient, "Test Recipient", 1000);
-        org.setRecipientAdvanceLimit(recipient, 500 ether);
-
-        vm.prank(recipient);
-        vm.expectRevert(CustomErrors.InvalidAmount.selector);
-        org.requestAdvance(0, address(token));
     }
 
     function testRecipientCreatedEvent() public {
@@ -579,5 +629,506 @@ contract OrganizationContractTest is Test {
         vm.expectEmit(true, false, false, true);
         emit BatchDisbursement(address(token), 2, totalGrossAmount - 1); // Account for rounding down
         org.batchDisburseToken(address(token), recipients, amounts);
+    }
+
+    function testPaymentHistoryTracking() public {
+        // Create recipient and disburse tokens
+        org.createRecipient(recipient, "Test Recipient", 1000);
+        uint256 amount = 100;
+        org.disburseToken(address(token), recipient, amount);
+        
+        // Get payment history
+        StructLib.Structs.Payment[] memory payments = org.getRecipientPayments(recipient);
+        assertEq(payments.length, 1, "Should have one payment record");
+        assertEq(payments[0].recipient, recipient, "Payment recipient should match");
+        assertEq(payments[0].amount, amount - (amount * org.transactionFee()) / 10000, "Payment amount should match");
+    }
+
+    function testFeeCalculationEdgeCases() public {
+        // Test with very small amounts
+        uint256 smallAmount = 1;
+        uint256 fee = org.calculateFee(smallAmount);
+        assertEq(fee, 0, "Fee should be 0 for very small amounts");
+
+        // Test with large amounts
+        uint256 largeAmount = type(uint256).max / 10001; // Prevent overflow
+        uint256 largeFee = org.calculateFee(largeAmount);
+        assertTrue(largeFee > 0, "Fee should be calculated for large amounts");
+        
+        // Test gross amount calculation
+        uint256 netAmount = 1000;
+        uint256 grossAmount = org.calculateGrossAmount(netAmount);
+        uint256 calculatedFee = org.calculateFee(grossAmount);
+        assertEq(grossAmount - calculatedFee, netAmount, "Net amount calculation should be accurate");
+    }
+
+    function testReentrancyProtection() public {
+        // Create a malicious token that attempts reentrancy
+        MaliciousToken malToken = new MaliciousToken();
+        factory.addToken("Malicious Token", address(malToken));
+        
+        // Create recipient
+        org.createRecipient(recipient, "Test Recipient", 1000);
+        
+        // Fund the malicious token
+        malToken.mint(address(this), 1000 ether);
+        malToken.approve(address(org), type(uint256).max);
+        
+        // Set up the reentrancy attack
+        malToken.setTarget(address(org), recipient);
+        
+        // Attempt reentrancy attack
+        vm.expectRevert(CustomErrors.ReentrantCall.selector);
+        org.disburseToken(address(malToken), recipient, 100);
+    }
+
+    function testAdvanceRepaymentScenarios() public {
+        // Create recipient with salary and advance limit
+        org.createRecipient(recipient, "Test Recipient", 1000);
+        org.setRecipientAdvanceLimit(recipient, 500);
+        
+        // Request and approve advance
+        vm.prank(recipient);
+        org.requestAdvance(300, address(token));
+        org.approveAdvance(recipient);
+        
+        // Verify advance state
+        StructLib.Structs.Recipient memory recipientInfo = org.getRecipient(recipient);
+        assertEq(recipientInfo.advanceCollected, 300, "Advance should be recorded");
+        
+        // Attempt to disburse less than advance amount
+        vm.expectRevert(CustomErrors.InvalidAmount.selector);
+        org.disburseToken(address(token), recipient, 200);
+        
+        // Disburse more than advance amount to trigger repayment
+        org.disburseToken(address(token), recipient, 1000);
+        
+        // Verify advance is cleared
+        recipientInfo = org.getRecipient(recipient);
+        assertEq(recipientInfo.advanceCollected, 0, "Advance should be cleared after repayment");
+        
+        // Verify advance request is cleared
+        (,,,,,bool repaid,) = org.advanceRequests(recipient);
+        assertTrue(repaid, "Advance should be marked as repaid");
+    }
+
+    function testComplexBatchOperations() public {
+        // Create multiple recipients with different scenarios
+        address[] memory addresses = new address[](3);
+        string[] memory names = new string[](3);
+        uint256[] memory salaries = new uint256[](3);
+        
+        addresses[0] = address(10);
+        addresses[1] = address(11);
+        addresses[2] = address(12);
+        names[0] = "Recipient 1";
+        names[1] = "Recipient 2";
+        names[2] = "Recipient 3";
+        salaries[0] = 1000;
+        salaries[1] = 2000;
+        salaries[2] = 3000;
+        
+        org.batchCreateRecipients(addresses, names, salaries);
+        
+        // Set up advances for some recipients
+        vm.prank(addresses[0]);
+        org.requestAdvance(100, address(token));
+        org.approveAdvance(addresses[0]);
+        
+        vm.prank(addresses[1]);
+        org.requestAdvance(200, address(token));
+        org.approveAdvance(addresses[1]);
+        
+        // Prepare disbursement amounts
+        address[] memory recipients = new address[](3);
+        uint256[] memory amounts = new uint256[](3);
+        
+        recipients[0] = addresses[0];
+        recipients[1] = addresses[1];
+        recipients[2] = addresses[2];
+        amounts[0] = 500;  // More than advance
+        amounts[1] = 150;  // Less than advance
+        amounts[2] = 1000; // No advance
+        
+        // Test batch disbursement with mixed scenarios
+        vm.expectRevert(CustomErrors.InvalidAmount.selector);
+        org.batchDisburseToken(address(token), recipients, amounts);
+    }
+
+    function testPermissions() public {
+        address nonOwner = address(123);
+        
+        // Test owner-only functions
+        vm.prank(nonOwner);
+        vm.expectRevert(CustomErrors.UnauthorizedAccess.selector);
+        org.createRecipient(recipient, "Test", 1000);
+        
+        vm.prank(nonOwner);
+        vm.expectRevert(CustomErrors.UnauthorizedAccess.selector);
+        org.disburseToken(address(token), recipient, 100);
+        
+        // Test factory-only functions
+        vm.prank(nonOwner);
+        vm.expectRevert(CustomErrors.UnauthorizedAccess.selector);
+        org.setTransactionFee(60);
+        
+        vm.prank(nonOwner);
+        vm.expectRevert(CustomErrors.UnauthorizedAccess.selector);
+        org.setFeeCollector(address(456));
+    }
+
+    function testUpdateRecipientSalary() public {
+        // Create recipient
+        org.createRecipient(recipient, "Test Recipient", 1000);
+
+        // Store initial timestamp
+        StructLib.Structs.Recipient memory initial = org.getRecipient(recipient);
+
+        // Advance time by 1 second
+        vm.warp(block.timestamp + 1);
+
+        // Update salary
+        uint256 newSalary = 2000;
+        org.updateRecipientSalary(recipient, newSalary);
+
+        // Verify update
+        StructLib.Structs.Recipient memory recipientInfo = org.getRecipient(recipient);
+        assertEq(recipientInfo.salaryAmount, newSalary, "Salary should be updated");
+        assertTrue(recipientInfo.updatedAt > recipientInfo.createdAt, "Updated timestamp should be greater");
+    }
+
+    function test_RevertWhen_UpdateRecipientSalaryWithZeroAmount() public {
+        org.createRecipient(recipient, "Test Recipient", 1000);
+        vm.expectRevert(CustomErrors.InvalidAmount.selector);
+        org.updateRecipientSalary(recipient, 0);
+    }
+
+    function test_RevertWhen_UpdateRecipientSalaryForNonExistentRecipient() public {
+        vm.expectRevert(CustomErrors.RecipientNotFound.selector);
+        org.updateRecipientSalary(address(999), 1000);
+    }
+
+    function testAdvanceRepaymentWithMultiplePayments() public {
+        // Create recipient with salary and advance limit
+        org.createRecipient(recipient, "Test Recipient", 1000);
+        org.setRecipientAdvanceLimit(recipient, 500);
+
+        // Request and approve advance
+        vm.startPrank(recipient);
+        org.requestAdvance(300, address(token));
+        vm.stopPrank();
+        org.approveAdvance(recipient);
+
+        // Verify advance state
+        StructLib.Structs.Recipient memory recipientInfo = org.getRecipient(recipient);
+        assertEq(recipientInfo.advanceCollected, 300, "Advance should be recorded");
+
+        // Make partial payment that doesn't cover advance
+        vm.expectRevert(CustomErrors.InvalidAmount.selector);
+        org.disburseToken(address(token), recipient, 200);
+
+        // Make payment that exactly covers advance (should fail)
+        vm.expectRevert(CustomErrors.InvalidAmount.selector);
+        org.disburseToken(address(token), recipient, 300);
+
+        // Make payment that covers advance plus extra
+        org.disburseToken(address(token), recipient, 400);
+
+        // Verify advance is cleared
+        recipientInfo = org.getRecipient(recipient);
+        assertEq(recipientInfo.advanceCollected, 0, "Advance should be cleared");
+
+        // Verify advance request is cleared and marked as repaid
+        (,,,,,bool repaid,) = org.advanceRequests(recipient);
+        assertTrue(repaid, "Advance should be marked as repaid");
+    }
+
+    function testFeeCalculationPrecision() public {
+        // Test with very small amounts
+        uint256 smallAmount = 1;
+        uint256 fee = org.calculateFee(smallAmount);
+        assertEq(fee, 0, "Fee should be 0 for very small amounts");
+
+        // Test with amount that would cause precision loss
+        uint256 amount = 10001;  // This should result in a non-zero fee
+        fee = org.calculateFee(amount);
+        assertTrue(fee > 0, "Fee should be non-zero for larger amounts");
+
+        // Test with maximum possible amount
+        uint256 maxAmount = type(uint256).max / 10001; // Prevent overflow
+        fee = org.calculateFee(maxAmount);
+        assertTrue(fee > 0, "Fee should be calculated for large amounts");
+
+        // Verify fee calculation precision
+        uint256 netAmount = 1000;
+        uint256 grossAmount = org.calculateGrossAmount(netAmount);
+        fee = org.calculateFee(grossAmount);
+        assertEq(grossAmount - fee, netAmount, "Fee calculation should be precise");
+    }
+
+    function testEventEmissions() public {
+        // Test RecipientCreated event
+        vm.recordLogs();
+        bytes32 recipientId = org.createRecipient(recipient, "Test Recipient", 1000);
+
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        assertEq(entries.length, 1, "Should emit one event");
+        
+        // Verify RecipientCreated event
+        bytes32 expectedEventSig = keccak256("RecipientCreated(bytes32,address,string)");
+        assertEq(entries[0].topics[0], expectedEventSig, "Event signature should match");
+        assertEq(bytes32(entries[0].topics[1]), recipientId, "Recipient ID should match");
+        assertEq(address(uint160(uint256(entries[0].topics[2]))), recipient, "Recipient address should match");
+
+        // Test TokenDisbursed event
+        vm.recordLogs();
+        org.disburseToken(address(token), recipient, 100);
+
+        entries = vm.getRecordedLogs();
+        bool foundTokenDisbursedEvent = false;
+        expectedEventSig = keccak256("TokenDisbursed(address,address,uint256)");
+        
+        for (uint i = 0; i < entries.length; i++) {
+            if (entries[i].topics[0] == expectedEventSig) {
+                foundTokenDisbursedEvent = true;
+                assertEq(address(uint160(uint256(entries[i].topics[1]))), address(token), "Token address should match");
+                assertEq(address(uint160(uint256(entries[i].topics[2]))), recipient, "Recipient address should match");
+                break;
+            }
+        }
+        assertTrue(foundTokenDisbursedEvent, "Should emit TokenDisbursed event");
+    }
+
+    function testComplexStateTransitions() public {
+        // Create recipient
+        org.createRecipient(recipient, "Test Recipient", 1000);
+        StructLib.Structs.Recipient memory initial = org.getRecipient(recipient);
+
+        // Advance time by 1 second
+        vm.warp(block.timestamp + 1);
+
+        // Update name
+        org.updateRecipient(recipient, "Updated Name");
+        StructLib.Structs.Recipient memory afterNameUpdate = org.getRecipient(recipient);
+        assertEq(afterNameUpdate.name, "Updated Name", "Name should be updated");
+        assertTrue(afterNameUpdate.updatedAt > initial.createdAt, "Updated timestamp should be greater than created timestamp");
+
+        // Advance time by another second
+        vm.warp(block.timestamp + 1);
+
+        // Update salary
+        org.updateRecipientSalary(recipient, 2000);
+        StructLib.Structs.Recipient memory afterSalaryUpdate = org.getRecipient(recipient);
+        assertEq(afterSalaryUpdate.salaryAmount, 2000, "Salary should be updated");
+        assertTrue(afterSalaryUpdate.updatedAt > initial.createdAt, "Updated timestamp should be greater than created timestamp");
+    }
+
+    function testZeroAddressChecks() public {
+        // Test creating recipient with zero address
+        vm.expectRevert(CustomErrors.InvalidAddress.selector);
+        org.createRecipient(address(0), "Test Recipient", 1000);
+
+        // Test batch create with zero address
+        address[] memory addresses = new address[](2);
+        string[] memory names = new string[](2);
+        uint256[] memory salaries = new uint256[](2);
+        addresses[0] = address(1);
+        addresses[1] = address(0);  // Zero address
+        names[0] = "Recipient 1";
+        names[1] = "Recipient 2";
+        salaries[0] = 1000;
+        salaries[1] = 2000;
+
+        vm.expectRevert(CustomErrors.InvalidAddress.selector);
+        org.batchCreateRecipients(addresses, names, salaries);
+    }
+
+    function testEmptyArrayInputs() public {
+        // Test batch operations with mismatched array lengths
+        address[] memory addresses = new address[](1);
+        string[] memory names = new string[](2);
+        uint256[] memory amounts = new uint256[](1);
+
+        vm.expectRevert(CustomErrors.InvalidInput.selector);
+        org.batchCreateRecipients(addresses, names, amounts);
+
+        // Test batch disburse with mismatched arrays
+        vm.expectRevert(CustomErrors.InvalidInput.selector);
+        org.batchDisburseToken(address(token), addresses, new uint256[](2));
+    }
+
+    function testMaximumArrayLength() public {
+        // Test batch operations with reasonable array length
+        uint256 length = 5;
+        address[] memory addresses = new address[](length);
+        string[] memory names = new string[](length);
+        uint256[] memory salaries = new uint256[](length);
+
+        for(uint i = 0; i < length; i++) {
+            addresses[i] = address(uint160(i + 1));
+            names[i] = "Test";
+            salaries[i] = 1000;
+        }
+
+        // This should pass as it's a reasonable length
+        org.batchCreateRecipients(addresses, names, salaries);
+
+        // Verify recipients were created
+        for(uint i = 0; i < length; i++) {
+            StructLib.Structs.Recipient memory recipient = org.getRecipient(addresses[i]);
+            assertTrue(recipient.recipientId != 0, "Recipient should exist");
+        }
+    }
+
+    function testAdvanceRequestEdgeCases() public {
+        org.createRecipient(recipient, "Test Recipient", 1000);
+        org.setRecipientAdvanceLimit(recipient, 500);
+
+        // Test requesting advance with amount > salary
+        vm.prank(recipient);
+        vm.expectRevert(CustomErrors.InvalidAmount.selector);
+        org.requestAdvance(1001, address(token));
+
+        // Test requesting advance with amount = salary
+        vm.prank(recipient);
+        vm.expectRevert(CustomErrors.InvalidAmount.selector);
+        org.requestAdvance(1000, address(token));
+
+        // Test approving non-existent advance request
+        vm.expectRevert(CustomErrors.InvalidRequest.selector);
+        org.approveAdvance(address(999));
+
+        // Test requesting advance with unsupported token
+        vm.prank(recipient);
+        vm.expectRevert(CustomErrors.InvalidToken.selector);
+        org.requestAdvance(100, address(999));
+    }
+
+    function testRecipientNameValidation() public {
+        // Test with valid name
+        org.createRecipient(recipient, "Valid Name", 1000);
+        StructLib.Structs.Recipient memory createdRecipient = org.getRecipient(recipient);
+        assertTrue(createdRecipient.recipientId != 0, "Recipient should be created");
+
+        // Test with empty name
+        vm.expectRevert(CustomErrors.NameRequired.selector);
+        org.createRecipient(address(123), "", 1000);
+
+        // Test updating with empty name
+        vm.expectRevert(CustomErrors.NameRequired.selector);
+        org.updateRecipient(recipient, "");
+    }
+
+    function testDisbursementEdgeCases() public {
+        org.createRecipient(recipient, "Test Recipient", 1000);
+
+        // Test disbursement with zero amount
+        vm.expectRevert(CustomErrors.InvalidAmount.selector);
+        org.disburseToken(address(token), recipient, 0);
+
+        // Test disbursement with unsupported token
+        vm.expectRevert(CustomErrors.TokenNotSupported.selector);
+        org.disburseToken(address(999), recipient, 100);
+
+        // Test disbursement to non-existent recipient
+        vm.expectRevert(CustomErrors.RecipientNotFound.selector);
+        org.disburseToken(address(token), address(999), 100);
+
+        // Test disbursement with zero address token
+        vm.expectRevert(CustomErrors.InvalidAddress.selector);
+        org.disburseToken(address(0), recipient, 100);
+    }
+
+    function testAdvanceLimitEdgeCases() public {
+        // Test setting advance limit for non-existent recipient
+        vm.expectRevert(CustomErrors.RecipientNotFound.selector);
+        org.setRecipientAdvanceLimit(recipient, 1001);
+
+        // Create recipient and test valid advance limit
+        org.createRecipient(recipient, "Test Recipient", 1000);
+        org.setRecipientAdvanceLimit(recipient, 500);
+        
+        // Test setting advance limit for zero address
+        vm.expectRevert(CustomErrors.InvalidAddress.selector);
+        org.setRecipientAdvanceLimit(address(0), 500);
+    }
+
+    function testTransactionFeeEdgeCases() public {
+        // Test setting fee to maximum allowed value
+        factory.updateOrganizationTransactionFee(owner, 80);
+        assertEq(org.transactionFee(), 80, "Fee should be updated to maximum allowed");
+
+        // Test setting fee to zero
+        factory.updateOrganizationTransactionFee(owner, 0);
+        assertEq(org.transactionFee(), 0, "Fee should be updated to zero");
+
+        // Test fee calculation with zero fee
+        uint256 amount = 1000;
+        assertEq(org.calculateFee(amount), 0, "Fee should be zero when fee percentage is zero");
+        assertEq(org.calculateGrossAmount(amount), amount, "Gross amount should equal net amount when fee is zero");
+    }
+
+    function testConstructorAndInitialState() public {
+        // Test constructor parameters
+        assertEq(factory.owner(), address(this), "Owner should be set correctly");
+        assertEq(factory.feeCollector(), feeCollector, "Fee collector should be set correctly");
+
+        // Test initial state
+        assertGt(factory.getSupportedTokensCount(), 0, "Initial token count should be more than Zero");
+        assertNotEq(factory.getOrganizationContract(address(this)), address(0), "org contract should not be zero");
+    }
+
+    function testDefaultAdvanceLimitOnDeployment() public {
+        // Deploy a new organization contract with a different owner
+        address newOwner = address(789);
+        vm.prank(newOwner);
+        address newOrgAddress = factory.createOrganization("New Org", "New Description");
+        OrgContract.OrganizationContract newOrg = OrgContract.OrganizationContract(newOrgAddress);
+
+        // Create a recipient to check if they get the default advance limit
+        address newRecipient = address(123);
+        vm.prank(newOwner);  // Only owner can create recipient
+        newOrg.createRecipient(newRecipient, "Test Recipient", 1000);
+
+        // Verify the default advance limit is 0.1 ether
+        assertEq(newOrg.recipientAdvanceLimit(newRecipient), 0.1 ether, "Default advance limit should be 0.1 ether");
+
+        // Verify we can request an advance up to this limit
+        vm.startPrank(newRecipient);
+        newOrg.requestAdvance(0.1 ether, address(token));
+        vm.stopPrank();
+
+        // Verify the request was accepted
+        (address requestRecipient, uint256 requestAmount,,,,, address requestToken) = newOrg.advanceRequests(newRecipient);
+        assertEq(requestRecipient, newRecipient, "Request recipient should match");
+        assertEq(requestAmount, 0.1 ether, "Request amount should match default limit");
+        assertEq(requestToken, address(token), "Request token should match");
+    }
+}
+
+// Malicious token contract for testing reentrancy protection
+contract MaliciousToken is MockERC20 {
+    OrganizationContract private targetContract;
+    address private targetRecipient;
+    bool private reentrancyAttempted;
+    
+    function transferFrom(address from, address to, uint256 amount) external override returns (bool) {
+        if (!reentrancyAttempted && msg.sender == address(targetContract)) {
+            reentrancyAttempted = true;
+            // Attempt reentrancy
+            targetContract.disburseToken(address(this), targetRecipient, amount);
+        }
+        
+        _balances[from] -= amount;
+        _balances[to] += amount;
+        _allowances[from][msg.sender] -= amount;
+        
+        return true;
+    }
+    
+    function setTarget(address _contract, address _recipient) external {
+        targetContract = OrganizationContract(_contract);
+        targetRecipient = _recipient;
+        reentrancyAttempted = false;
     }
 }

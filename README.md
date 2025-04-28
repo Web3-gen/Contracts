@@ -1,4 +1,4 @@
-# HR_Project_Web3Bridge
+# PayTroix_Project_Web3Bridge
 
 This repository contains the smart contracts and related scripts for the HR_Project_Web3Bridge, a blockchain-based solution for managing organizations and contracts. The project leverages [Foundry](https://book.getfoundry.sh/) for development, testing, and deployment of Solidity smart contracts.
 
