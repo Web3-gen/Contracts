@@ -794,7 +794,9 @@ contract OrganizationContractTest is Test {
         // Verify update
         StructLib.Structs.Recipient memory recipientInfo = org.getRecipient(recipient);
         assertEq(recipientInfo.salaryAmount, newSalary, "Salary should be updated");
-        assertTrue(recipientInfo.updatedAt > initial.updatedAt, "Updated timestamp should be greater than initial timestamp");
+        assertTrue(
+            recipientInfo.updatedAt > initial.updatedAt, "Updated timestamp should be greater than initial timestamp"
+        );
     }
 
     function test_RevertWhen_UpdateRecipientSalaryWithZeroAmount() public {
