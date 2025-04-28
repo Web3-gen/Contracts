@@ -89,14 +89,14 @@ contract TokenTest is Test {
         // Add multiple tokens
         tokenRegistry.addToken("Token 1", token1);
         tokenRegistry.addToken("Token 2", token2);
-        
+
         assertEq(tokenRegistry.supportedTokensCount(), 2, "Should have two supported tokens");
         assertTrue(tokenRegistry.isTokenSupported(token1), "Token1 should be supported");
         assertTrue(tokenRegistry.isTokenSupported(token2), "Token2 should be supported");
-        
+
         // Remove one token
         tokenRegistry.removeToken(token1);
-        
+
         assertEq(tokenRegistry.supportedTokensCount(), 1, "Should have one supported token");
         assertFalse(tokenRegistry.isTokenSupported(token1), "Token1 should not be supported");
         assertTrue(tokenRegistry.isTokenSupported(token2), "Token2 should still be supported");
@@ -104,25 +104,25 @@ contract TokenTest is Test {
 
     function test_RevertWhen_UnauthorizedAccess() public {
         address nonOwner = address(123);
-        
+
         vm.startPrank(nonOwner);
-        
+
         vm.expectRevert(CustomErrors.UnauthorizedAccess.selector);
         tokenRegistry.addToken("Test Token", token1);
-        
+
         vm.expectRevert(CustomErrors.UnauthorizedAccess.selector);
         tokenRegistry.removeToken(token1);
-        
+
         vm.stopPrank();
     }
 
     function testTokenEvents() public {
         string memory tokenName = "Test Token";
-        
+
         vm.expectEmit(true, false, false, true);
         emit TokenAdded(token1, tokenName);
         tokenRegistry.addToken(tokenName, token1);
-        
+
         vm.expectEmit(true, false, false, false);
         emit TokenRemoved(token1);
         tokenRegistry.removeToken(token1);

@@ -427,7 +427,7 @@ contract OrganizationContract {
         _onlyOwner();
         if (_recipient == address(0)) revert CustomErrors.InvalidAddress();
         if (recipients[_recipient].recipientId == 0) revert CustomErrors.RecipientNotFound();
-        
+
         // Check if limit exceeds salary
         if (_limit >= recipients[_recipient].salaryAmount) revert CustomErrors.InvalidAmount();
 

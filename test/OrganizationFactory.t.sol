@@ -10,11 +10,7 @@ import "../src/libraries/errors.sol";
 contract OrganizationFactoryTest is Test {
     // Events from OrganizationFactory contract
     event OrganizationCreated(
-        address indexed organizationAddress,
-        address indexed owner,
-        string name,
-        string description,
-        uint256 createdAt
+        address indexed organizationAddress, address indexed owner, string name, string description, uint256 createdAt
     );
 
     OrganizationFactory public factory;
@@ -246,7 +242,7 @@ contract OrganizationFactoryTest is Test {
         assertEq(address(uint160(uint256(lastEntry.topics[2]))), address(this), "Owner address should match");
 
         // Decode non-indexed parameters
-        (string memory emittedName, string memory emittedDesc, uint256 emittedTime) = 
+        (string memory emittedName, string memory emittedDesc, uint256 emittedTime) =
             abi.decode(lastEntry.data, (string, string, uint256));
 
         // Verify non-indexed parameters
