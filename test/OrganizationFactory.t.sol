@@ -8,6 +8,11 @@ import "../src/libraries/structs.sol";
 import "../src/libraries/errors.sol";
 
 contract OrganizationFactoryTest is Test {
+    // Events from OrganizationFactory contract
+    event OrganizationCreated(
+        address indexed organizationAddress, address indexed owner, string name, string description, uint256 createdAt
+    );
+
     OrganizationFactory public factory;
     address public owner;
     address public user;
@@ -188,5 +193,97 @@ contract OrganizationFactoryTest is Test {
     function test_RevertWhen_GetDetailsOfNonExistentOrg() public {
         vm.expectRevert(CustomErrors.OrganizationNotFound.selector);
         factory.getOrganizationDetails(address(1));
+    }
+
+    function testGetOrganizationContract() public {
+        // Initially should return zero address
+        assertEq(factory.getOrganizationContract(user), address(0), "Should return zero address for non-existent org");
+
+        // Create organization
+        vm.prank(user);
+        address orgAddress = factory.createOrganization("Test Org", "Test Description");
+
+        // Should return correct address after creation
+        assertEq(factory.getOrganizationContract(user), orgAddress, "Should return correct organization address");
+    }
+
+    function test_RevertWhen_CreateDuplicateOrganization() public {
+        // Create first organization
+        vm.startPrank(user);
+        factory.createOrganization("First Org", "First Description");
+
+        // Try to create second organization with same owner
+        vm.expectRevert(CustomErrors.OrganizationAlreadyExists.selector);
+        factory.createOrganization("Second Org", "Second Description");
+        vm.stopPrank();
+    }
+
+    function testOrganizationCreatedEvent() public {
+        string memory name = "Test Org";
+        string memory description = "Test Description";
+
+        // Test event emission
+        vm.recordLogs();
+        address orgAddress = factory.createOrganization(name, description);
+
+        // Get the emitted event
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        assertEq(entries.length > 0, true, "Should emit at least one event");
+
+        // The event we're interested in should be the last one
+        Vm.Log memory lastEntry = entries[entries.length - 1];
+
+        // Verify event signature
+        bytes32 expectedEventSig = keccak256("OrganizationCreated(address,address,string,string,uint256)");
+        assertEq(lastEntry.topics[0], expectedEventSig, "Event signature should match");
+
+        // Verify indexed parameters
+        assertEq(address(uint160(uint256(lastEntry.topics[1]))), orgAddress, "Organization address should match");
+        assertEq(address(uint160(uint256(lastEntry.topics[2]))), address(this), "Owner address should match");
+
+        // Decode non-indexed parameters
+        (string memory emittedName, string memory emittedDesc, uint256 emittedTime) =
+            abi.decode(lastEntry.data, (string, string, uint256));
+
+        // Verify non-indexed parameters
+        assertEq(emittedName, name, "Organization name should match");
+        assertEq(emittedDesc, description, "Organization description should match");
+        assertEq(emittedTime, block.timestamp, "Creation timestamp should match");
+    }
+
+    function testConstructorAndInitialState() public {
+        // Test constructor parameters
+        assertEq(factory.owner(), address(this), "Owner should be set correctly");
+        assertEq(factory.feeCollector(), feeCollector, "Fee collector should be set correctly");
+
+        // Test initial state
+        assertEq(factory.getSupportedTokensCount(), 0, "Initial token count should be zero");
+        assertEq(factory.getOrganizationContract(address(this)), address(0), "Initial org contract should be zero");
+    }
+
+    function testCompleteOrganizationLifecycle() public {
+        // Create organization
+        string memory name = "Test Org";
+        string memory description = "Test Description";
+        address orgAddress = factory.createOrganization(name, description);
+
+        // Add supported token
+        factory.addToken("Test Token", token);
+
+        // Update organization settings
+        factory.updateOrganizationTransactionFee(address(this), 30);
+        factory.updateOrganizationFeeCollector(address(this), address(4));
+
+        // Verify final state
+        OrgContract.OrganizationContract org = OrgContract.OrganizationContract(orgAddress);
+        assertEq(org.transactionFee(), 30, "Transaction fee should be updated");
+        assertEq(org.feeCollector(), address(4), "Fee collector should be updated");
+        assertTrue(factory.isTokenSupported(token), "Token should be supported");
+
+        // Get and verify organization details
+        Structs.Organization memory orgDetails = factory.getOrganizationDetails(address(this));
+        assertEq(orgDetails.name, name, "Name should match");
+        assertEq(orgDetails.description, description, "Description should match");
+        assertEq(orgDetails.owner, address(this), "Owner should match");
     }
 }
